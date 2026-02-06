@@ -153,6 +153,9 @@ class ShowsTableDelegate(QStyledItemDelegate):
 
         super().__init__(parent)
 
+    def setPalette(self, palette):
+        self.colors = palette
+
     def paint(self, painter, option, index):
         if index.column() == 4:
             rect = option.rect

@@ -157,7 +157,7 @@ class SearchMethod(Enum):
 
 
 HOME = os.path.expanduser("~")
-EXTENSIONS = ('.mkv', '.mp4', '.avi', '.ts')
+EXTENSIONS = ('.mkv', '.mp4', '.avi', '.ts', '.!qB', '.part')
 
 # Put the available APIs here
 available_libs = {
@@ -383,6 +383,38 @@ def estimate_aired_episodes(show):
     return 0
 
 
+def normalize_title(title):
+    """
+    Normalize title for better matching.
+    Inspired by Taiga's recognition_normalize.cpp
+    """
+    if not title:
+        return ""
+    
+    # Lowercase and standard substitutions
+    title = title.lower()
+    
+    # Roman numerals (simplified)
+    title = re.sub(r'\bii\b', '2', title)
+    title = re.sub(r'\biii\b', '3', title)
+    title = re.sub(r'\biv\b', '4', title)
+    title = re.sub(r'\bv\b', '5', title)
+    
+    # Season numbers
+    title = re.sub(r'\b(s|season|series)\s?(\d+)\b', r' \2 ', title)
+    title = re.sub(r'\b(\d+)(st|nd|rd|th)\s+(season|series)\b', r' \1 ', title)
+    
+    # Common removals
+    title = re.sub(r'\b(tv|the animation|episode|ova|ona)\b', '', title)
+    
+    # Remove punctuation/symbols (keep alphanumerics and spaces)
+    title = re.sub(r'[^a-z0-9\s]', ' ', title)
+    
+    # Collapse whitespace
+    title = re.sub(r'\s+', ' ', title).strip()
+    
+    return title
+
 def guess_show(show_title, tracker_list):
     """ Take a title and search for it fuzzily in the tracker list """
     (showlist, altnames_map) = tracker_list
@@ -394,25 +426,62 @@ def guess_show(show_title, tracker_list):
         if showid in showlist:
             return showlist[showid]
 
+    # --- Taiga-style Normalization Match ---
+    norm_filename_title = normalize_title(show_title)
+    
+    # Check for exact normalized match first
+    for item in showlist.values():
+        for title in item['titles']:
+            if normalize_title(title) == norm_filename_title:
+                return item
+
+    # --- Fuzzy Match Fallback ---
     # Use difflib to see if the show title is similar to
     # one we have in the list
-    highest_ratio = (None, 0)
+    best_match = None
+    highest_ratio = 0
     matcher = difflib.SequenceMatcher()
     matcher.set_seq1(show_title.lower())
 
     # Compare to every show in our list to see which one
     # has the most similar name
+    candidates = []
     for item in showlist.values():
         # Make sure to search through all the aliases
+        local_highest = 0
         for title in item['titles']:
             matcher.set_seq2(title.lower())
             ratio = matcher.ratio()
-            if ratio > highest_ratio[1]:
-                highest_ratio = (item, ratio)
+            if ratio > local_highest:
+                local_highest = ratio
+        
+        if local_highest > 0.7:
+            candidates.append((item, local_highest))
 
-    playing_show = highest_ratio[0]
-    if highest_ratio[1] > 0.7:
-        return playing_show
+    if not candidates:
+        return None
+
+    # Sort candidates by ratio (descending)
+    candidates.sort(key=lambda x: x[1], reverse=True)
+
+    # Filtering logic:
+    # If the top candidate is significantly better, pick it.
+    # If the top few are close (within 0.1), prefer the one that is 'Watching' (status 1) or 'Airing' (status 1 usually)
+    # This fixes S1 (Completed) vs S2 (Watching) ambiguity.
+    
+    top_candidate = candidates[0]
+    best_ratio = top_candidate[1]
+    
+    # Check if we have a "Watching" candidate in the top tier matches
+    watching_candidates = [c for c in candidates if c[1] >= best_ratio - 0.15 and c[0].get('my_status') == 1]
+    
+    if watching_candidates:
+        # If we have valid candidates that are currently being watched, pick the best among them
+        # This effectively overrides a slightly better string match (e.g. "Show" vs "Show S2") 
+        # if "Show" is completed and "Show S2" is watching.
+        return watching_candidates[0][0]
+    
+    return top_candidate[0]
 
 
 def redirect_show(show_tuple, redirections, tracker_list):
@@ -576,7 +645,7 @@ config_defaults = {
     'tracker_update_prompt': False,
     'tracker_not_found_prompt': False,
     'tracker_interval': 10,
-    'tracker_process': 'mplayer|mplayer2|mpv',
+    'tracker_process': 'mplayer|mplayer2|mpv|celluloid|vlc',
     'tracker_ignore_not_next': True,
     'autoretrieve': 'days',
     'autoretrieve_days': 3,
@@ -612,6 +681,13 @@ config_defaults = {
     'redirections_time': 1,
     'use_hooks': True,
     'title_parser': 'aie',
+    'nyaa_category': '1_0',
+    'nyaa_filter': '0',
+    'qbittorrent_enabled': False,
+    'qbittorrent_host': 'localhost',
+    'qbittorrent_port': 8080,
+    'qbittorrent_user': 'admin',
+    'qbittorrent_pass': '',
 }
 
 userconfig_defaults = {

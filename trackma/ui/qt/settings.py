@@ -51,6 +51,8 @@ class SettingsDialog(QDialog):
             getIcon('folder'), 'Library', self.category_list)
         category_sync = QListWidgetItem(
             getIcon('view-refresh'), 'Sync', self.category_list)
+        category_torrents = QListWidgetItem(
+            getIcon('edit-find'), 'Torrents', self.category_list)
         category_ui = QListWidgetItem(
             getIcon('window-new'), 'User Interface', self.category_list)
         category_theme = QListWidgetItem(
@@ -399,6 +401,44 @@ class SettingsDialog(QDialog):
         page_theme_layout = QFormLayout()
         page_theme_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
 
+        # Torrent tab
+        page_torrents = QWidget()
+        page_torrents_layout = QVBoxLayout()
+        page_torrents_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+
+        # Group: qBittorrent
+        g_qbit = QGroupBox('qBittorrent')
+        g_qbit.setFlat(True)
+        self.qbittorrent_enabled = QCheckBox('Enable qBittorrent')
+        self.qbittorrent_host = QLineEdit()
+        self.qbittorrent_port = QSpinBox()
+        self.qbittorrent_port.setRange(1, 65535)
+        self.qbittorrent_user = QLineEdit()
+        self.qbittorrent_pass = QLineEdit()
+        self.qbittorrent_pass.setEchoMode(QLineEdit.EchoMode.Password)
+
+        g_qbit_layout = QFormLayout()
+        g_qbit_layout.addRow(self.qbittorrent_enabled)
+        g_qbit_layout.addRow('Host', self.qbittorrent_host)
+        g_qbit_layout.addRow('Port', self.qbittorrent_port)
+        g_qbit_layout.addRow('User', self.qbittorrent_user)
+        g_qbit_layout.addRow('Password', self.qbittorrent_pass)
+        g_qbit.setLayout(g_qbit_layout)
+
+        # Group: Nyaa
+        g_nyaa = QGroupBox('Nyaa.si')
+        g_nyaa.setFlat(True)
+        self.nyaa_category = QLineEdit()
+        self.nyaa_filter = QLineEdit()
+        g_nyaa_layout = QFormLayout()
+        g_nyaa_layout.addRow('Category', self.nyaa_category)
+        g_nyaa_layout.addRow('Filter', self.nyaa_filter)
+        g_nyaa.setLayout(g_nyaa_layout)
+
+        page_torrents_layout.addWidget(g_qbit)
+        page_torrents_layout.addWidget(g_nyaa)
+        page_torrents.setLayout(page_torrents_layout)
+
         # Group: Episode Bar
         g_ep_bar = QGroupBox('Episode Bar')
         g_ep_bar.setFlat(True)
@@ -465,7 +505,7 @@ class SettingsDialog(QDialog):
 
         # Content
         self.contents = QStackedWidget()
-        for page in (page_media, page_library, page_sync, page_ui, page_theme):
+        for page in (page_media, page_library, page_sync, page_torrents, page_ui, page_theme):
             scrollable_page = QScrollArea()
             scrollable_page.setWidgetResizable(True)
             scrollable_page.setWidget(page)
@@ -546,6 +586,14 @@ class SettingsDialog(QDialog):
             engine.get_config('kodi_obey_update_wait_s'))
         self.kodi_user.setText(engine.get_config('kodi_user'))
         self.kodi_passw.setText(engine.get_config('kodi_passwd'))
+
+        self.qbittorrent_enabled.setChecked(engine.get_config('qbittorrent_enabled'))
+        self.qbittorrent_host.setText(engine.get_config('qbittorrent_host'))
+        self.qbittorrent_port.setValue(engine.get_config('qbittorrent_port'))
+        self.qbittorrent_user.setText(engine.get_config('qbittorrent_user'))
+        self.qbittorrent_pass.setText(engine.get_config('qbittorrent_pass'))
+        self.nyaa_category.setText(engine.get_config('nyaa_category'))
+        self.nyaa_filter.setText(engine.get_config('nyaa_filter'))
 
         for path in engine.get_config('searchdir'):
             self._add_dir(path)
@@ -657,6 +705,14 @@ class SettingsDialog(QDialog):
         engine.set_config('kodi_user',         self.kodi_user.text())
         engine.set_config('kodi_passwd',       self.kodi_passw.text())
 
+        engine.set_config('qbittorrent_enabled', self.qbittorrent_enabled.isChecked())
+        engine.set_config('qbittorrent_host',    self.qbittorrent_host.text())
+        engine.set_config('qbittorrent_port',    self.qbittorrent_port.value())
+        engine.set_config('qbittorrent_user',    self.qbittorrent_user.text())
+        engine.set_config('qbittorrent_pass',    self.qbittorrent_pass.text())
+        engine.set_config('nyaa_category',       self.nyaa_category.text())
+        engine.set_config('nyaa_filter',         self.nyaa_filter.text())
+
         engine.set_config('searchdir',         [self.searchdirs.item(
             i).text() for i in range(self.searchdirs.count())])
 
@@ -712,6 +768,8 @@ class SettingsDialog(QDialog):
         self.config['colors'] = self.color_values
 
         utils.save_config(self.config, self.configfile)
+        
+        engine.apply_config()
 
         self.saved.emit()
 

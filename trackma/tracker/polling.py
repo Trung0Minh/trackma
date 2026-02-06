@@ -46,7 +46,31 @@ class PollingTracker(tracker.TrackerBase):
 
     def observe(self, config, watch_dirs):
         self.msg.info("pyinotify not available; using polling (slow).")
+        last_files = set()
+        # Initial scan to avoid detecting everything as new on startup
+        for path in watch_dirs:
+            for fullpath, filename in utils.regex_find_videos(path):
+                last_files.add(fullpath)
+
         while self.active:
+            # Check for new files in library
+            current_files = set()
+            for path in watch_dirs:
+                for fullpath, filename in utils.regex_find_videos(path):
+                    current_files.add(fullpath)
+                    if fullpath not in last_files:
+                        self.msg.debug(f"Polling detected new file: {fullpath}")
+                        self._emit_signal('detected', path, filename)
+            
+            # Check for removed files
+            for fullpath in last_files:
+                if fullpath not in current_files:
+                    path, filename = os.path.split(fullpath)
+                    self.msg.debug(f"Polling detected removed file: {fullpath}")
+                    self._emit_signal('removed', path, filename)
+            
+            last_files = current_files
+
             # This runs the tracker and update the playing show if necessary
             filename = self.get_playing_file(
                 watch_dirs, config['tracker_process'])

@@ -31,6 +31,7 @@ from trackma.ui.qt.accounts import AccountDialog
 from trackma.ui.qt.add import AddDialog
 from trackma.ui.qt.details import DetailsDialog
 from trackma.ui.qt.settings import SettingsDialog
+from trackma.ui.qt.torrents import TorrentDialog
 from trackma.ui.qt.util import FilterBar, getIcon
 from trackma.ui.qt.widgets import ShowsTableView
 from trackma.ui.qt.workers import EngineWorker, ImageWorker
@@ -142,6 +143,10 @@ class MainWindow(QMainWindow):
             'Pick a random show with a new episode and play it.')
         action_play_random.setShortcut('Ctrl+R')
         action_play_random.triggered.connect(self.s_play_random)
+        self.action_search_torrent = QAction(getIcon('edit-find'), 'Search &Torrent...', self)
+        self.action_search_torrent.setStatusTip('Search for torrents on Nyaa.si.')
+        self.action_search_torrent.setShortcut('Ctrl+T')
+        self.action_search_torrent.triggered.connect(self.s_search_torrent)
         self.action_add = QAction(
             getIcon('edit-find'), 'Search/Add from Remote', self)
         self.action_add.setShortcut('Ctrl+A')
@@ -194,6 +199,7 @@ class MainWindow(QMainWindow):
         self.menu_show.addAction(self.action_play_next)
         self.menu_show.addAction(self.action_play_dialog)
         self.menu_show.addAction(self.action_details)
+        self.menu_show.addAction(self.action_search_torrent)
         self.menu_show.addAction(self.action_altname)
         self.menu_show.addSeparator()
         self.menu_show.addAction(action_play_random)
@@ -209,6 +215,7 @@ class MainWindow(QMainWindow):
         self.menu_show_context = QMenu()
         self.menu_show_context.addMenu(self.menu_play)
         self.menu_show_context.addAction(self.action_details)
+        self.menu_show_context.addAction(self.action_search_torrent)
         self.menu_show_context.addAction(action_open_folder)
         self.menu_show_context.addAction(self.action_altname)
         self.menu_show_context.addSeparator()
@@ -466,6 +473,7 @@ class MainWindow(QMainWindow):
         self.worker.playing_show.connect(self.ws_changed_show)
         self.worker.prompt_for_update.connect(self.ws_prompt_update)
         self.worker.prompt_for_add.connect(self.ws_prompt_add)
+        self.worker.library_updated.connect(self.r_library_updated)
 
         # Show main window
         if not (self.config['show_tray'] and self.config['start_in_tray']):
@@ -596,6 +604,7 @@ class MainWindow(QMainWindow):
         self.show_status.setEnabled(enable)
         self.action_play_next.setEnabled(enable)
         self.action_play_dialog.setEnabled(enable)
+        self.action_search_torrent.setEnabled(enable)
         self.action_altname.setEnabled(enable)
         self.action_delete.setEnabled(enable)
         self.action_details.setEnabled(enable)
@@ -628,7 +637,19 @@ class MainWindow(QMainWindow):
         self._apply_view()
         self._apply_tray()
         self._apply_filter_bar()
-        # TODO: Reload listviews?
+        
+        # Apply palette and style changes live
+        if self.view:
+            self.view.itemDelegate().setPalette(self.config['colors'])
+            self.view.itemDelegate().setBarStyle(
+                self.config['episodebar_style'], self.config['episodebar_text'])
+            
+            # The model caches some brushes, so update its palette too
+            model = self.view.model().sourceModel()
+            if hasattr(model, 'setPalette'):
+                model.setPalette(self.config['colors'])
+            
+            self.view.viewport().update()
 
     def _apply_view(self):
         if self.config['inline_edit']:
@@ -1240,6 +1261,16 @@ class MainWindow(QMainWindow):
         self.addwindow.setModal(True)
         self.addwindow.show()
 
+    def s_search_torrent(self):
+        query = ""
+        if self.selected_show_id:
+            show = self.worker.engine.get_show_info(self.selected_show_id)
+            query = show['title']
+        
+        self.torrentwindow = TorrentDialog(self, self.worker, default_query=query)
+        self.torrentwindow.setModal(True)
+        self.torrentwindow.show()
+
     def s_mediatype(self, action):
         index = action.data()
         if index is not None:
@@ -1338,17 +1369,19 @@ class MainWindow(QMainWindow):
         self._update_tracker_info(status)
 
     def ws_prompt_update(self, show, episode):
-        box = QMessageBox(self)
-        box.setWindowTitle("Update prompt")
-        box.setText(f"Do you want to update {show['title']} to {episode}?")
-        box.setIcon(QMessageBox.Icon.Question)
-        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        box.setAttribute(QtCore.Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        box.setModal(False)
-        box.accepted.connect(lambda:
-                self.worker_call('set_episode', self.r_generic,
-                show['id'], episode))
-        box.show()
+        if getattr(self, '_update_prompt_active', False):
+            return
+
+        self._update_prompt_active = True
+        try:
+            reply = QMessageBox.question(self, "Update prompt",
+                f"Do you want to update {show['title']} to {episode}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.worker_call('set_episode', self.r_generic, show['id'], episode)
+        finally:
+            self._update_prompt_active = False
 
     def ws_prompt_add(self, show, episode):
         page = self.notebook.currentIndex()
@@ -1438,6 +1471,11 @@ class MainWindow(QMainWindow):
             self.status('Ready.')
 
         self._unbusy()
+
+    def r_library_updated(self, result):
+        if self.mediainfo:
+            self._rebuild_view()
+            self.status('Library updated.')
 
     def r_engine_unloaded(self, result):
         if result['success']:

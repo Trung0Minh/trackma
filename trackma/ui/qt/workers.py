@@ -98,6 +98,7 @@ class EngineWorker(QtCore.QThread):
     playing_show = QtCore.pyqtSignal(dict, bool, int)
     prompt_for_update = QtCore.pyqtSignal(dict, int)
     prompt_for_add = QtCore.pyqtSignal(dict, int)
+    library_updated = QtCore.pyqtSignal(dict)
 
     def __init__(self):
         super(EngineWorker, self).__init__()
@@ -137,6 +138,12 @@ class EngineWorker(QtCore.QThread):
     def _prompt_for_add(self, show, episode):
         self.prompt_for_add.emit(show, episode)
 
+    def _library_updated(self, library=None):
+        # We don't really need the library dict in the signal for the UI to rebuild,
+        # but the engine emits it or None. The UI just needs to know it happened.
+        # But for consistency with pyqtSignal(dict), we emit an empty dict if None
+        self.library_updated.emit(library if library is not None else {})
+
     def _start(self, account):
         self.engine = Engine(account, self._messagehandler)
 
@@ -153,6 +160,7 @@ class EngineWorker(QtCore.QThread):
             'prompt_for_update', self._prompt_for_update)
         self.engine.connect_signal('prompt_for_add', self._prompt_for_add)
         self.engine.connect_signal('tracker_state', self._tracker_state)
+        self.engine.connect_signal('library_updated', self._library_updated)
 
         self.engine.start()
 

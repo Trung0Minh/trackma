@@ -56,6 +56,14 @@ class ShowListModel(QtCore.QAbstractTableModel):
     def setMediaInfo(self, mediainfo):
         self.mediainfo = mediainfo
 
+    def setPalette(self, palette):
+        self.palette = palette
+        if self.showlist:
+            for row, show in enumerate(self.showlist):
+                self._calculate_color(row, show)
+            self.dataChanged.emit(self.index(0, 0), 
+                                 self.index(len(self.showlist)-1, len(self.columns)-1))
+
     def _date(self, obj):
         if obj:
             return obj.strftime(self.date_format)

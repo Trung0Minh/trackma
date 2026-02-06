@@ -31,6 +31,8 @@ from trackma import messenger
 from trackma import utils
 from trackma.extras import redirections
 from trackma.parser import get_parser_class
+from trackma.lib.nyaa import NyaaSearcher
+from trackma.lib.qbittorrent import QBitClient
 
 
 class Engine:
@@ -73,7 +75,8 @@ class Engine:
                'prompt_for_update': None,
                'prompt_for_add':    None,
                'tracker_state':     None,
-               'episode_missing': None,
+               'episode_missing':   None,
+               'library_updated':   None,
                }
 
     def __init__(self, account=None, message_handler=None, accountnum=None):
@@ -360,9 +363,25 @@ class Engine:
                     self.config['tracker_type']))
                 self.msg.exception(sys.exc_info())
 
+        # Start periodic library scan if configured
+        self.autoscan_interval = self.config.get('library_autoscan_interval', 0)
+        if self.autoscan_interval > 0:
+            self.msg.info(f"Starting auto-scan library every {self.autoscan_interval} seconds.")
+            self.autoscan_thread = utils.Thread(target=self._autoscan_loop)
+            self.autoscan_thread.start()
+
         self.loaded = True
         self.msg.debug("Engine started")
         return True
+
+    def _autoscan_loop(self):
+        while self.loaded:
+            time.sleep(self.autoscan_interval)
+            if not self.loaded: break
+            try:
+                self.scan_library()
+            except Exception as e:
+                self.msg.warn(f"Auto-scan failed: {e}")
 
     def unload(self):
         """
@@ -424,6 +443,51 @@ class Engine:
 
         # Save config file
         utils.save_config(self.config, self.configfile)
+
+    def apply_config(self):
+        """
+        Applies current configuration changes to the running engine.
+        Useful for changing settings without restarting.
+        """
+        self.msg.debug("Applying configuration changes...")
+        
+        # Re-evaluate search directories
+        if isinstance(self.config['searchdir'], str):
+            self.config['searchdir'] = [self.config['searchdir']]
+        
+        self.searchdirs = [path for path in utils.expand_paths(
+            self.config['searchdir']) if self._searchdir_exists(path)]
+            
+        # Update tracker if it exists
+        if self.tracker:
+            self.tracker.searchdirs = self.searchdirs
+            # Some trackers might need more complex logic to update, 
+            # but updating the searchdirs list is a good start.
+            
+        # If tracker was disabled and now enabled, or vice versa
+        if self.mediainfo.get('can_play'):
+            if self.config['tracker_enabled'] and not self.tracker:
+                self.msg.info("Enabling tracker...")
+                try:
+                    TrackerClass = self._get_tracker_class(self.config['tracker_type'])
+                    self.tracker = TrackerClass(self.msg,
+                                                self._get_tracker_list(),
+                                                self.config,
+                                                self.searchdirs,
+                                                self.redirections)
+                    # Connect signals (omitted for brevity, ideally would reuse logic from start())
+                    self.tracker.connect_signal('detected', self._tracker_detected)
+                    self.tracker.connect_signal('removed', self._tracker_removed)
+                    self.tracker.connect_signal('playing', self._tracker_playing)
+                    self.tracker.connect_signal('update', self._tracker_update)
+                    self.tracker.connect_signal('unrecognised', self._tracker_unrecognised)
+                    self.tracker.connect_signal('state', self._tracker_state)
+                except Exception as e:
+                    self.msg.warn(f"Failed to enable tracker: {e}")
+            elif not self.config['tracker_enabled'] and self.tracker:
+                self.msg.info("Disabling tracker...")
+                self.tracker.disable()
+                self.tracker = None
 
     def get_list(self):
         """
@@ -819,6 +883,8 @@ class Engine:
             self.msg.debug("Time: %s" % (time.time() - t))
             self.data_handler.library_save(library)
             self.data_handler.library_cache_save(library_cache)
+        
+        self._emit_signal('library_updated')
         return library
 
     def remove_from_library(self, path, filename):
@@ -834,6 +900,9 @@ class Engine:
                 self.msg.debug("File removed from local library: %s" % fullpath)
                 library_cache.pop(filename, None)
                 library[show_id].pop(show_ep, None)
+                self.data_handler.library_save(library)
+                self.data_handler.library_cache_save(library_cache)
+                self._emit_signal('library_updated')
 
     def add_to_library(self, path, filename, rescan=False):
         # The inotify tracker tells us when files are created in
@@ -845,6 +914,9 @@ class Engine:
         guess_show = partial(utils.guess_show, tracker_list=tracker_list)
         self._add_show_to_library(
             library, library_cache, rescan, fullpath, filename, tracker_list, guess_show)
+        self.data_handler.library_save(library)
+        self.data_handler.library_cache_save(library_cache)
+        self._emit_signal('library_updated')
 
     def _add_show_to_library(self, library, library_cache, rescan, fullpath, filename, tracker_list, guess_show):
         show_id = None
@@ -1057,6 +1129,48 @@ class Engine:
     def get_queue(self):
         """Asks the data handler for the items in the current queue."""
         return self.data_handler.queue
+
+    def search_torrents(self, query, page=1):
+        """
+        Search for torrents on Nyaa.si using default settings.
+        """
+        searcher = NyaaSearcher(self.msg)
+        return searcher.search(query, 
+                              category=self.config.get('nyaa_category', '1_0'),
+                              filter=self.config.get('nyaa_filter', '0'),
+                              page=page)
+
+    def search_torrents_manual(self, query, category="1_0", page=1):
+        """
+        Search for torrents on Nyaa.si with a manually specified category.
+        """
+        searcher = NyaaSearcher(self.msg)
+        return searcher.search(query, 
+                              category=category,
+                              filter=self.config.get('nyaa_filter', '0'),
+                              page=page)
+
+    def download_torrent(self, magnet_link):
+        """
+        Send a magnet link to qBittorrent.
+        """
+        if not self.config.get('qbittorrent_enabled'):
+            raise utils.EngineError("qBittorrent is not enabled in config.")
+
+        client = QBitClient(
+            host=self.config.get('qbittorrent_host', 'localhost'),
+            port=self.config.get('qbittorrent_port', 8080),
+            username=self.config.get('qbittorrent_user', 'admin'),
+            password=self.config.get('qbittorrent_pass', ''),
+            messenger=self.msg
+        )
+
+        if client.login():
+            # Use the first searchdir as the default save path if available
+            save_path = self.searchdirs[0] if self.searchdirs else None
+            return client.add_magnet(magnet_link, save_path=save_path)
+        else:
+            raise utils.EngineError("Failed to login to qBittorrent.")
 
     def _get_relative_path_or_basename(self, searchdir, fullpath):
         """Determine the path relative to a directory or the basename if not a sub-path.
