@@ -282,7 +282,6 @@ class MainWindow(QMainWindow):
         # Build layout
         main_layout = QVBoxLayout()
         top_hbox = QHBoxLayout()
-        self.main_splitter = QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.list_box = QVBoxLayout()
         filter_bar_box_layout = QHBoxLayout()
         self.filter_bar_box = QWidget()
