@@ -33,7 +33,7 @@ from trackma.ui.qt.details import DetailsDialog
 from trackma.ui.qt.settings import SettingsDialog
 from trackma.ui.qt.torrents import TorrentDialog
 from trackma.ui.qt.util import FilterBar, getIcon
-from trackma.ui.qt.widgets import ShowsTableView
+from trackma.ui.qt.widgets import ShowsTableView, ShowsGridView
 from trackma.ui.qt.workers import EngineWorker, ImageWorker
 
 class MainWindow(QMainWindow):
@@ -308,16 +308,30 @@ class MainWindow(QMainWindow):
         top_hbox.addWidget(self.api_user)
         top_hbox.addWidget(self.api_refresh)
 
+        # View Mode Toggle Action
+        self.action_view_mode = QAction('Toggle Grid/List', self)
+        self.action_view_mode.setStatusTip('Switch between poster grid and table list views.')
+        self.action_view_mode.triggered.connect(self.s_toggle_view_mode)
+        self.menu_show.addAction(self.action_view_mode)
+
+        # Toolbar button
+        self.view_toggle_btn = QToolButton()
+        self.view_toggle_btn.setText('View Mode')
+        self.view_toggle_btn.clicked.connect(self.s_toggle_view_mode)
+        top_hbox.addWidget(self.view_toggle_btn)
+
         # Create main models and view
         self.notebook = QTabBar()
         self.notebook.currentChanged.connect(self.s_tab_changed)
 
         self.view = ShowsTableView(palette=self.config['colors'])
+        self.grid_view = ShowsGridView(self)
         self.view.context_menu = self.menu_show_context
         self.view.horizontalHeader().customContextMenuRequested.connect(
             self.s_show_menu_columns)
         self.view.horizontalHeader().sortIndicatorChanged.connect(self.s_update_sort)
         self.view.selectionModel().currentRowChanged.connect(self.s_show_selected)
+        self.grid_view.selectionChanged.connect(self.s_grid_show_selected)
         self.view.itemDelegate().setBarStyle(
             self.config['episodebar_style'], self.config['episodebar_text'])
         self.view.middleClicked.connect(lambda: self.s_play(True))
@@ -464,28 +478,33 @@ class MainWindow(QMainWindow):
         if self.config['filter_bar_position'] is FilterBar.PositionHidden:
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
             self.filter_bar_box.hide()
         elif self.config['filter_bar_position'] is FilterBar.PositionAboveLists:
             self.list_box.addWidget(self.filter_bar_box)
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
         elif self.config['filter_bar_position'] is FilterBar.PositionBelowLists:
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
             self.list_box.addWidget(self.filter_bar_box)
 
-        # Wrap panels in widgets for the splitter
+        # Left widget holds list/grid stacked box
         left_widget = QWidget()
-        left_widget.setLayout(left_box)
-        left_widget.setMinimumWidth(180)
+        left_widget.setLayout(self.list_box)
 
+        # Right widget holds details sidebar (B1)
         right_widget = QWidget()
-        right_widget.setLayout(self.list_box)
+        right_widget.setLayout(left_box)
+        right_widget.setMinimumWidth(220)
+        right_widget.setMaximumWidth(280)
 
         self.main_splitter = QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.main_splitter.addWidget(left_widget)
         self.main_splitter.addWidget(right_widget)
-        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.setStretchFactor(0, 1)
         self.main_splitter.splitterMoved.connect(lambda: self._update_image())
 
         # Restore splitter state
@@ -538,6 +557,8 @@ class MainWindow(QMainWindow):
         # Show main window
         if not (self.config['show_tray'] and self.config['start_in_tray']):
             self.show()
+
+        self._apply_view_mode()
 
         # Start loading engine
         self.started = True
@@ -756,19 +777,54 @@ class MainWindow(QMainWindow):
         self.list_box.removeWidget(self.filter_bar_box)
         self.list_box.removeWidget(self.notebook)
         self.list_box.removeWidget(self.view)
+        self.list_box.removeWidget(self.grid_view)
         self.filter_bar_box.show()
         if self.config['filter_bar_position'] is FilterBar.PositionHidden:
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
             self.filter_bar_box.hide()
         elif self.config['filter_bar_position'] is FilterBar.PositionAboveLists:
             self.list_box.addWidget(self.filter_bar_box)
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
         elif self.config['filter_bar_position'] is FilterBar.PositionBelowLists:
             self.list_box.addWidget(self.notebook)
             self.list_box.addWidget(self.view)
+            self.list_box.addWidget(self.grid_view)
             self.list_box.addWidget(self.filter_bar_box)
+
+    def s_toggle_view_mode(self):
+        current_mode = self.config.get('view_mode', 'grid')
+        new_mode = 'list' if current_mode == 'grid' else 'grid'
+        self.config['view_mode'] = new_mode
+        self._save_config()
+        self._apply_view_mode()
+
+    def _apply_view_mode(self):
+        mode = self.config.get('view_mode', 'grid')
+        if mode == 'grid':
+            self.view.hide()
+            self.grid_view.show()
+            if self.grid_view.model != self.view.model():
+                self.grid_view.setModel(self.view.model())
+            if self.selected_show_id:
+                self.grid_view.select_show(self.selected_show_id)
+        else:
+            self.grid_view.hide()
+            self.view.show()
+
+    def s_grid_show_selected(self, show_id):
+        # Find row index in self.view model
+        model = self.view.model()
+        for row in range(model.rowCount()):
+            idx = model.index(row, 0)
+            src_idx = model.mapToSource(idx)
+            show = model.sourceModel().showlist[src_idx.row()]
+            if show['id'] == show_id:
+                self.view.setCurrentIndex(idx)
+                break
 
     def _busy(self, wait=False):
         if wait:
@@ -902,6 +958,9 @@ class MainWindow(QMainWindow):
             self.show_notes.setPlainText('')
             self._enable_show_widgets(False)
 
+            if hasattr(self, 'grid_view') and self.grid_view:
+                self.grid_view.select_show(None)
+
             return
 
         # Block signals
@@ -967,6 +1026,8 @@ class MainWindow(QMainWindow):
 
         # Make it global
         self.selected_show_id = show['id']
+        if hasattr(self, 'grid_view') and self.grid_view:
+            self.grid_view.select_show(show['id'])
 
         # Unblock signals
         self.show_status.blockSignals(False)
@@ -1530,6 +1591,7 @@ class MainWindow(QMainWindow):
             # Set globals
             self.api_info = self.worker.engine.api_info
             self.mediainfo = self.worker.engine.mediainfo
+            self.grid_view.set_api_info(self.worker.engine.api_info)
 
             # Rebuild statuses
             self._rebuild_statuses()
@@ -1569,6 +1631,7 @@ class MainWindow(QMainWindow):
             self._recalculate_counts()
 
             self.s_show_selected(None)
+            self._apply_view_mode()
 
             self.status('Ready.')
 
