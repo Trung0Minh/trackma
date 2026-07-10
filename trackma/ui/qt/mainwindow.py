@@ -501,9 +501,9 @@ class MainWindow(QMainWindow):
         right_widget.setMaximumWidth(280)
 
         self.main_splitter = QSplitter(QtCore.Qt.Orientation.Horizontal)
-        self.main_splitter.addWidget(left_widget)
         self.main_splitter.addWidget(right_widget)
-        self.main_splitter.setStretchFactor(0, 1)
+        self.main_splitter.addWidget(left_widget)
+        self.main_splitter.setStretchFactor(1, 1)
         self.main_splitter.splitterMoved.connect(lambda: self._update_image())
 
         # Restore splitter state
