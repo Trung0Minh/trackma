@@ -821,6 +821,8 @@ class MainWindow(QMainWindow):
         for row in range(model.rowCount()):
             idx = model.index(row, 0)
             src_idx = model.mapToSource(idx)
+            if not src_idx.isValid() or src_idx.row() < 0:
+                continue
             show = model.sourceModel().showlist[src_idx.row()]
             if show['id'] == show_id:
                 self.view.setCurrentIndex(idx)
