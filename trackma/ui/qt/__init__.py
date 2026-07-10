@@ -40,6 +40,8 @@ def main():
 
     try:
         from PyQt6.QtWidgets import QApplication, QMessageBox
+        from PyQt6.QtCore import QLockFile, QDir
+        from PyQt6.QtNetwork import QLocalSocket
     except ImportError:
         print("Couldn't import Qt6 dependencies. "
               "Make sure you installed the PyQt6 package.")
@@ -52,8 +54,27 @@ def main():
               "Preview images will be disabled.")
 
     app = QApplication(sys.argv)
+    # Import stylesheet and apply
+    from trackma.ui.qt.styles import QSS_STYLESHEET
+    app.setStyleSheet(QSS_STYLESHEET)
     app.setApplicationName("trackma")
     app.setDesktopFileName("trackma-qt")
+
+    # Single instance check and reopening
+    socket = QLocalSocket()
+    socket.connectToServer("trackma-qt")
+    if socket.waitForConnected(500):
+        socket.write(b"show")
+        socket.waitForBytesWritten(500)
+        print("Trackma-qt is already running, reopening existing instance.")
+        sys.exit(0)
+
+    # Fallback to lock file if server is not responding but lock exists
+    lock_file = QLockFile(QDir.tempPath() + "/trackma-qt.lock")
+    if not lock_file.tryLock(100):
+        print("Trackma-qt is already running (locked).")
+        sys.exit(1)
+
     if os.name == "nt":
         import ctypes
         myappid = 'trackma' + utils.VERSION
