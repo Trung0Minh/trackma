@@ -449,3 +449,149 @@ class ShowCardWidget(QFrame):
             self.clicked.emit(self.show_id)
         super().mousePressEvent(event)
 
+
+class ShowsGridView(QScrollArea):
+    selectionChanged = QtCore.pyqtSignal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+        self.setObjectName("ShowsGridView")
+        self.setStyleSheet("QScrollArea#ShowsGridView { background-color: #0b0f19; border: none; }")
+
+        self.container = QWidget()
+        self.container.setStyleSheet("background-color: #0b0f19;")
+        self.grid_layout = QGridLayout(self.container)
+        self.grid_layout.setContentsMargins(12, 12, 12, 12)
+        self.grid_layout.setSpacing(12)
+        self.setWidget(self.container)
+
+        self.cards = {}
+        self.selected_show_id = None
+        self.model = None
+        self.api_info = None
+
+        # Setup image download/caching pool
+        from trackma.ui.qt.thumbs import ThumbManager
+        self.pool = ThumbManager()
+        self.pool.itemFinished.connect(self.on_thumb_downloaded)
+
+    def setModel(self, model):
+        # Disconnect old model if exists
+        if self.model:
+            try:
+                self.model.layoutChanged.disconnect(self.reload_grid)
+                self.model.modelReset.disconnect(self.reload_grid)
+                self.model.dataChanged.disconnect(self.on_data_changed)
+            except TypeError:
+                pass
+
+        self.model = model
+        if self.model:
+            self.model.layoutChanged.connect(self.reload_grid)
+            self.model.modelReset.connect(self.reload_grid)
+            self.model.dataChanged.connect(self.on_data_changed)
+        self.reload_grid()
+
+    def set_api_info(self, api_info):
+        self.api_info = api_info
+        self.reload_grid()
+
+    def reload_grid(self):
+        # Clear existing layout
+        for i in reversed(range(self.grid_layout.count())):
+            item = self.grid_layout.itemAt(i)
+            if item and item.widget():
+                item.widget().setParent(None)
+        self.cards.clear()
+
+        if not self.model or not self.api_info:
+            return
+
+        for row in range(self.model.rowCount()):
+            if hasattr(self.model, 'mapToSource'):
+                source_index = self.model.mapToSource(self.model.index(row, 0))
+                source_model = self.model.sourceModel()
+            else:
+                source_index = self.model.index(row, 0)
+                source_model = self.model
+            
+            show_data = source_model.showlist[source_index.row()]
+            
+            # Resolve image filename in local cache
+            cached_image_path = None
+            if show_data.get('image'):
+                utils.make_dir(utils.to_cache_path())
+                # Use standard medium size cached format (or xl)
+                cached_image_path = utils.to_cache_path("%s_%s_f_%s.jpg" % (
+                    self.api_info['shortname'], self.api_info['mediatype'], show_data['id']))
+                
+                # If not cached, queue download
+                if not self.pool.exists(cached_image_path):
+                    self.pool.queueDownload(str(show_data['id']), show_data['image'], cached_image_path)
+            
+            card = ShowCardWidget(show_data, cached_image_path, self.container)
+            card.clicked.connect(self.on_card_clicked)
+            if show_data['id'] == self.selected_show_id:
+                card.set_selected(True)
+            
+            self.cards[show_data['id']] = card
+
+        self.rearrange_grid()
+
+    def on_card_clicked(self, show_id):
+        self.selected_show_id = show_id
+        for cid, card in self.cards.items():
+            card.set_selected(cid == show_id)
+        self.selectionChanged.emit(show_id)
+
+    def on_thumb_downloaded(self, iid, thumb):
+        try:
+            show_id = int(iid)
+        except (ValueError, TypeError):
+            return
+        if self.cards and show_id in self.cards and self.api_info:
+            cached_image_path = utils.to_cache_path("%s_%s_f_%s.jpg" % (
+                self.api_info['shortname'], self.api_info['mediatype'], show_id))
+            self.cards[show_id].set_poster_image(cached_image_path)
+
+    def on_data_changed(self, topLeft, bottomRight):
+        if not self.model:
+            return
+        for row in range(topLeft.row(), bottomRight.row() + 1):
+            if hasattr(self.model, 'mapToSource'):
+                source_index = self.model.mapToSource(self.model.index(row, 0))
+                source_model = self.model.sourceModel()
+            else:
+                source_index = self.model.index(row, 0)
+                source_model = self.model
+            show_data = source_model.showlist[source_index.row()]
+            if show_data['id'] in self.cards:
+                self.cards[show_data['id']].update_data(show_data)
+
+    def rearrange_grid(self):
+        if not self.cards:
+            return
+        width = self.viewport().width()
+        card_width = 160  # Width of poster card + grid spacing
+        columns = max(1, width // card_width)
+        
+        # Remove all items from layout
+        for i in reversed(range(self.grid_layout.count())):
+            self.grid_layout.takeAt(i)
+
+        for i, card in enumerate(self.cards.values()):
+            row = i // columns
+            col = i % columns
+            self.grid_layout.addWidget(card, row, col)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.rearrange_grid()
+
+    def select_show(self, show_id):
+        self.selected_show_id = show_id
+        for cid, card in self.cards.items():
+            card.set_selected(cid == show_id)
+
+
