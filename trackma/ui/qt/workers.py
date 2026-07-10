@@ -51,15 +51,16 @@ class ImageWorker(QtCore.QThread):
         req = urllib.request.Request(self.remote)
         req.add_header("User-agent", "TrackmaImage/{}".format(utils.VERSION))
         try:
-            img_file = BytesIO(urllib.request.urlopen(req).read())
+            data = urllib.request.urlopen(req).read()
             if self.size:
                 if "imaging_available" in os.environ:
+                    img_file = BytesIO(data)
                     im = Image.open(img_file)
                     im.thumbnail((self.size[0], self.size[1]), Image.BICUBIC)
                     im.convert("RGB").save(self.local)
             else:
                 with open(self.local, 'wb') as f:
-                    f.write(img_file.read())
+                    f.write(data)
         except urllib.error.URLError as e:
             print("Warning: Error getting image ({})".format(e))
             return
@@ -99,6 +100,7 @@ class EngineWorker(QtCore.QThread):
     prompt_for_update = QtCore.pyqtSignal(dict, int)
     prompt_for_add = QtCore.pyqtSignal(dict, int)
     library_updated = QtCore.pyqtSignal(dict)
+    list_retrieved = QtCore.pyqtSignal()
 
     def __init__(self):
         super(EngineWorker, self).__init__()
@@ -149,20 +151,21 @@ class EngineWorker(QtCore.QThread):
 
         self.engine.connect_signal('episode_changed', self._changed_show)
         self.engine.connect_signal('score_changed', self._changed_show)
-        self.engine.connect_signal('tags_changed', self._changed_show)
+        self.engine.connect_signal('show_changed', self._changed_show)
         self.engine.connect_signal('status_changed', self._changed_show_status)
         self.engine.connect_signal('playing', self._playing_show)
         self.engine.connect_signal('show_added', self._changed_list)
         self.engine.connect_signal('show_deleted', self._changed_list)
         self.engine.connect_signal('show_synced', self._changed_show)
         self.engine.connect_signal('queue_changed', self._changed_queue)
-        self.engine.connect_signal(
-            'prompt_for_update', self._prompt_for_update)
+        self.engine.connect_signal('prompt_for_update', self._prompt_for_update)
         self.engine.connect_signal('prompt_for_add', self._prompt_for_add)
         self.engine.connect_signal('tracker_state', self._tracker_state)
         self.engine.connect_signal('library_updated', self._library_updated)
+        self.engine.connect_signal('list_retrieved', self.list_retrieved.emit)
 
         self.engine.start()
+        
 
     def set_function(self, function, ret_function, *args, **kwargs):
         if function in self.overrides:

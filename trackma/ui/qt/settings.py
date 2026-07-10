@@ -768,8 +768,6 @@ class SettingsDialog(QDialog):
         self.config['colors'] = self.color_values
 
         utils.save_config(self.config, self.configfile)
-        
-        engine.apply_config()
 
         self.saved.emit()
 

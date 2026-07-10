@@ -249,6 +249,8 @@ fragment mediaListEntry on MediaList {
   id
   score
   progress
+  repeat
+  notes
   startedAt { year month day }
   updatedAt
   completedAt { year month day }
@@ -256,7 +258,7 @@ fragment mediaListEntry on MediaList {
     id
     title { userPreferred romaji english native }
     synonyms
-    coverImage { large medium }
+    coverImage { extraLarge large }
     format
     status
     chapters episodes
@@ -303,9 +305,11 @@ fragment mediaListEntry on MediaList {
                     'my_progress': self._c(item['progress']),
                     'my_status': my_status,
                     'my_score': self._c(item['score']),
+                    'my_rewatches': self._c(item['repeat']),
+                    'my_notes': item['notes'] or '',
                     'total': self._c(media[self.total_str]),
-                    'image': media['coverImage']['large'],
-                    'image_thumb': media['coverImage']['medium'],
+                    'image': media['coverImage']['extraLarge'],
+                    'image_thumb': media['coverImage']['large'],
                     'url': media['siteUrl'],
                     'start_date': self._dict2date(media['startDate']),
                     'end_date': self._dict2date(media['endDate']),
@@ -328,6 +332,8 @@ fragment mediaListEntry on MediaList {
         'scoreRaw': 'Int',                   # The score of the media in 100 point
         # The amount of episodes/chapters consumed by the user
         'progress': 'Int',
+        'repeat': 'Int',                     # The amount of times the user has rewatched the media
+        'notes': 'String',                   # Personal notes about the media
         'startedAt': 'FuzzyDateInput',       # When the entry was started by the user
         'completedAt': 'FuzzyDateInput',     # When the entry was completed by the user
     }
@@ -346,6 +352,10 @@ fragment mediaListEntry on MediaList {
             values['status'] = item['my_status']
         if 'my_score' in item:
             values['scoreRaw'] = self._score2raw(item['my_score'])
+        if 'my_rewatches' in item:
+            values['repeat'] = item['my_rewatches']
+        if 'my_notes' in item:
+            values['notes'] = item['my_notes']
         if 'my_start_date' in item:
             values['startedAt'] = self._date2dict(item['my_start_date'])
         if 'my_finish_date' in item:
@@ -394,7 +404,7 @@ fragment mediaListEntry on MediaList {
         query += '''
       id
       title { userPreferred romaji english native }
-      coverImage { medium large }
+      coverImage { large extraLarge }
       format
       averageScore
       meanScore
@@ -430,7 +440,7 @@ fragment mediaListEntry on MediaList {
   Media(id: $id, type: $type) {
       id
       title { userPreferred romaji english native }
-      coverImage { medium large }
+      coverImage { large extraLarge }
       format
       averageScore
       meanScore
@@ -449,7 +459,7 @@ fragment mediaListEntry on MediaList {
 }'''
 
         for show in itemlist:
-            variables = {'id': show['id'], 'listType': self.mediatype.upper()}
+            variables = {'id': show['id'], 'type': self.mediatype.upper()}
             data = self._request(query, variables)['data']['Media']
             infolist.append(self._parse_info(data))
 
@@ -480,8 +490,8 @@ fragment mediaListEntry on MediaList {
             'aliases': self._get_aliases(item),
             'type': type_,
             'status': status,
-            'image': item['coverImage']['large'],
-            'image_thumb': item['coverImage']['medium'],
+            'image': item['coverImage']['extraLarge'],
+            'image_thumb': item['coverImage']['large'],
             'url': item['siteUrl'],
             'start_date': self._dict2date(item.get('startDate')),
             'end_date': self._dict2date(item.get('endDate')),

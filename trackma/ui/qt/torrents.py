@@ -1,10 +1,10 @@
 from PyQt6 import QtCore, QtGui
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit, QPushButton, 
                              QTableView, QHeaderView, QAbstractItemView, QDialogButtonBox, 
-                             QMessageBox, QLabel, QComboBox)
+                             QMessageBox, QLabel, QComboBox, QMenu, QTextBrowser)
 
 class TorrentTableModel(QtCore.QAbstractTableModel):
-    columns = ["Cat", "Title", "Size", "S", "L", "Done", "Published"]
+    columns = ["Title", "Size", "S", "L", "Done", "Published"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -33,20 +33,35 @@ class TorrentTableModel(QtCore.QAbstractTableModel):
         item = self.results[row]
 
         if role == QtCore.Qt.ItemDataRole.DisplayRole:
-            if col == 0: return item.get('category', '?')
-            if col == 1: return item.get('title')
-            if col == 2: return item.get('size')
-            if col == 3: return item.get('seeders')
-            if col == 4: return item.get('leechers')
-            if col == 5: return item.get('completed')
-            if col == 6: return item.get('published')
+            if col == 0: return item.get('title')
+            if col == 1: return item.get('size')
+            if col == 2: return item.get('seeders')
+            if col == 3: return item.get('leechers')
+            if col == 4: return item.get('completed')
+            if col == 5: return item.get('published')
         
         if role == QtCore.Qt.ItemDataRole.ForegroundRole:
-            if col == 3: return QtGui.QColor("green")
-            if col == 4: return QtGui.QColor("red")
-            if col == 5: return QtGui.QColor("deepskyblue")
+            if col == 2: return QtGui.QColor("green")
+            if col == 3: return QtGui.QColor("red")
+            if col == 4: return QtGui.QColor("deepskyblue")
 
         return None
+
+class InfoDialog(QDialog):
+    def __init__(self, parent, title, content):
+        super().__init__(parent)
+        self.setWindowTitle(f"Torrent Info: {title}")
+        self.resize(800, 600)
+        layout = QVBoxLayout(self)
+        
+        self.text_browser = QTextBrowser()
+        self.text_browser.setMarkdown(content)
+        self.text_browser.setOpenExternalLinks(True)
+        layout.addWidget(self.text_browser)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 class TorrentDialog(QDialog):
     def __init__(self, parent, worker, default_query=""):
@@ -92,7 +107,19 @@ class TorrentDialog(QDialog):
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnWidth(1, 80)  # Size
+        self.table.setColumnWidth(2, 45)  # S
+        self.table.setColumnWidth(3, 45)  # L
+        self.table.setColumnWidth(4, 65)  # Done
+        self.table.setColumnWidth(5, 150) # Published
+        
+        self.table.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.s_context_menu)
+        
         self.table.doubleClicked.connect(self.s_download)
         layout.addWidget(self.table)
 
@@ -174,6 +201,43 @@ class TorrentDialog(QDialog):
 
     def s_selected(self, current, previous):
         self.download_btn.setEnabled(current.isValid())
+
+    def s_context_menu(self, pos):
+        index = self.table.indexAt(pos)
+        if not index.isValid(): return
+        
+        menu = QMenu()
+        download_action = menu.addAction("Download")
+        info_action = menu.addAction("Information")
+        
+        action = menu.exec(self.table.viewport().mapToGlobal(pos))
+        if action == download_action:
+            self.s_download()
+        elif action == info_action:
+            self.s_info()
+
+    def s_info(self):
+        index = self.table.currentIndex()
+        if not index.isValid(): return
+        
+        item = self.model.results[index.row()]
+        url = item.get('id')
+        title = item.get('title')
+        
+        # Use partial or pass title as an extra argument if the worker supports it, 
+        # or just store it temporarily.
+        self._last_info_title = title 
+        self.worker.set_function('get_torrent_description', self.r_info, url)
+        self.worker.start()
+
+    def r_info(self, result):
+        title = getattr(self, '_last_info_title', 'Unknown')
+        if result['success']:
+            content = result['result']
+            dialog = InfoDialog(self, title, content)
+            dialog.exec()
+        else:
+            QMessageBox.critical(self, "Error", "Could not fetch torrent information.")
 
     def s_download(self):
         index = self.table.currentIndex()

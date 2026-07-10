@@ -65,6 +65,7 @@ class Engine:
 
     signals = {'show_added':        None,
                'show_deleted':      None,
+               'show_changed':      None,
                'episode_changed':   None,
                'score_changed':     None,
                'status_changed':    None,
@@ -819,8 +820,48 @@ class Engine:
         self.data_handler.queue_update(show, 'my_tags', newtags)
 
         # Emit signal
-        self._emit_signal('tags_changed', show)
+        self._emit_signal('show_changed', show)
 
+        return show
+
+    def set_rewatches(self, showid, newrewatches):
+        """
+        Updates the rewatches of the specified **showid** to **newrewatches**
+        and queues the list update for the next sync.
+        """
+        if not self.mediainfo.get('can_update'):
+            raise utils.EngineError('Operation not supported by API.')
+
+        try:
+            newrewatches = int(newrewatches)
+        except ValueError:
+            raise utils.EngineError('Rewatches must be numeric.')
+
+        show = self.get_show_info(showid)
+        if show.get('my_rewatches') == newrewatches:
+            raise utils.EngineError("Rewatches already %d" % newrewatches)
+
+        self.msg.info("Updating show %s rewatches to %d..." %
+                      (show['title'], newrewatches))
+        self.data_handler.queue_update(show, 'my_rewatches', newrewatches)
+        self._emit_signal('show_changed', show)
+        return show
+
+    def set_notes(self, showid, newnotes):
+        """
+        Updates the notes of the specified **showid** to **newnotes**
+        and queues the list update for the next sync.
+        """
+        if not self.mediainfo.get('can_update'):
+            raise utils.EngineError('Operation not supported by API.')
+
+        show = self.get_show_info(showid)
+        if show.get('my_notes') == newnotes:
+            raise utils.EngineError("Notes already same.")
+
+        self.msg.info("Updating show %s notes..." % show['title'])
+        self.data_handler.queue_update(show, 'my_notes', newnotes)
+        self._emit_signal('show_changed', show)
         return show
 
     def delete_show(self, show):
@@ -1149,6 +1190,13 @@ class Engine:
                               category=category,
                               filter=self.config.get('nyaa_filter', '0'),
                               page=page)
+
+    def get_torrent_description(self, url):
+        """
+        Fetch the full description of a torrent from its URL.
+        """
+        searcher = NyaaSearcher(self.msg)
+        return searcher.get_description(url)
 
     def download_torrent(self, magnet_link):
         """

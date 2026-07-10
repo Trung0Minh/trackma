@@ -148,7 +148,12 @@ class MainView(Gtk.Box):
         self._engine.connect_signal(
             'show_deleted', self._on_changed_show_status_idle)
         self._engine.connect_signal(
+            'list_retrieved', self._on_list_retrieved_idle)
+        self._engine.connect_signal(
             'prompt_for_update', self._on_prompt_update_next_idle)
+
+    def _on_list_retrieved_idle(self):
+        GLib.idle_add(self.populate_all_pages)
 
     def _engine_start(self):
         threading.Thread(target=self._engine_start_task).start()

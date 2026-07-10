@@ -17,11 +17,11 @@
 import base64
 import os
 
-from PyQt6 import QtCore, QtGui
+from PyQt6 import QtCore, QtGui, QtNetwork
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox,
                              QDoubleSpinBox, QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-                             QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton, QSpinBox, QStyle,
+                             QMainWindow, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox, QSplitter, QStyle,
                              QStyleOptionButton, QSystemTrayIcon, QTabBar, QToolButton, QVBoxLayout, QWidget)
 
 from trackma import messenger
@@ -54,6 +54,7 @@ class MainWindow(QMainWindow):
     show_lists = None
     finish = False
     was_maximized = False
+    current_image_file = None
 
     def __init__(self, debug=False):
         QMainWindow.__init__(self, None)
@@ -70,6 +71,12 @@ class MainWindow(QMainWindow):
             QApplication.setWindowIcon(QtGui.QIcon(utils.DATADIR + '/icon.ico'))
         self.setWindowTitle('Trackma-qt')
 
+        # Single instance server
+        self.server = QtNetwork.QLocalServer(self)
+        self.server.newConnection.connect(self._on_new_connection)
+        QtNetwork.QLocalServer.removeServer("trackma-qt")
+        self.server.listen("trackma-qt")
+
         self.accountman = AccountManager()
 
         # Go directly into the application if a default account is set
@@ -80,6 +87,21 @@ class MainWindow(QMainWindow):
         else:
             self.accountman_create()
             self.accountman_widget.show()
+
+    def _on_new_connection(self):
+        socket = self.server.nextPendingConnection()
+        if socket:
+            socket.readyRead.connect(self._on_socket_ready_read)
+
+    def _on_socket_ready_read(self):
+        socket = self.sender()
+        message = socket.readAll().data().decode()
+        if message == "show":
+            if not self.isVisible():
+                self.s_hide()
+            self.activateWindow()
+            self.raise_()
+        socket.disconnectFromServer()
 
     def accountman_create(self):
         self.accountman_widget = AccountDialog(None, self.accountman)
@@ -260,11 +282,12 @@ class MainWindow(QMainWindow):
         # Build layout
         main_layout = QVBoxLayout()
         top_hbox = QHBoxLayout()
-        main_hbox = QHBoxLayout()
+        self.main_splitter = QSplitter(QtCore.Qt.Orientation.Horizontal)
         self.list_box = QVBoxLayout()
         filter_bar_box_layout = QHBoxLayout()
         self.filter_bar_box = QWidget()
-        left_box = QFormLayout()
+        left_box = QVBoxLayout()
+        form_layout = QFormLayout()
         small_btns_hbox = QHBoxLayout()
 
         self.show_title = QLabel('Trackma-qt')
@@ -275,10 +298,15 @@ class MainWindow(QMainWindow):
 
         self.api_icon = QLabel('icon')
         self.api_user = QLabel('user')
+        self.api_refresh = QToolButton()
+        self.api_refresh.setIcon(getIcon('view-refresh'))
+        self.api_refresh.setToolTip('Redownload list (Ctrl+D)')
+        self.api_refresh.clicked.connect(self.s_retrieve)
 
         top_hbox.addWidget(self.show_title, 1)
         top_hbox.addWidget(self.api_icon)
         top_hbox.addWidget(self.api_user)
+        top_hbox.addWidget(self.api_refresh)
 
         # Create main models and view
         self.notebook = QTabBar()
@@ -353,8 +381,8 @@ class MainWindow(QMainWindow):
 
         spinbox_width = 75
         self.show_image = QLabel('Trackma-qt')
-        self.show_image.setFixedHeight(149)
-        self.show_image.setMinimumWidth(100)
+        self.show_image.setMinimumHeight(280)
+        self.show_image.setMinimumWidth(200)
         self.show_image.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
         show_progress_label = QLabel('Progress:')
         self.show_progress = QSpinBox()
@@ -386,28 +414,44 @@ class MainWindow(QMainWindow):
         self.show_score_btn = QPushButton('Set')
         self.show_score_btn.setToolTip('Set score to the value entered above')
         self.show_score_btn.clicked.connect(self.s_set_score)
-        self.show_tags_btn = QPushButton('Edit Tags...')
-        self.show_tags_btn.setToolTip(
-            'Open a dialog to edit your tags for this show')
-        self.show_tags_btn.clicked.connect(self.s_set_tags)
+        show_status_label = QLabel('Status:')
         self.show_status = QComboBox()
         self.show_status.setToolTip('Change your watching status of this show')
         self.show_status.currentIndexChanged.connect(self.s_set_status)
+        show_rewatches_label = QLabel('Rewatches:')
+        self.show_rewatches = QSpinBox()
+        self.show_rewatches.setMinimumWidth(spinbox_width)
+        self.show_rewatches_btn = QPushButton('Set')
+        self.show_rewatches_btn.setToolTip('Set rewatches to the value entered above')
+        self.show_rewatches_btn.clicked.connect(self.s_set_rewatches)
+        show_notes_label = QLabel('Notes:')
+        self.show_notes = QPlainTextEdit()
+        self.show_notes.setTabChangesFocus(True)
+        self.show_notes.setMinimumHeight(100)
+        self.show_notes_btn = QPushButton('Set Notes')
+        self.show_notes_btn.setToolTip('Set notes to the text entered above')
+        self.show_notes_btn.clicked.connect(self.s_set_notes)
 
         small_btns_hbox.addWidget(self.show_dec_btn)
         small_btns_hbox.addWidget(self.show_play_btn)
         small_btns_hbox.addWidget(self.show_inc_btn)
         small_btns_hbox.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
-        left_box.addRow(self.show_image)
-        left_box.addRow(self.show_progress_bar)
-        left_box.addRow(small_btns_hbox)
-        left_box.addRow(show_progress_label)
-        left_box.addRow(self.show_progress, self.show_progress_btn)
-        left_box.addRow(show_score_label)
-        left_box.addRow(self.show_score, self.show_score_btn)
-        left_box.addRow(self.show_status)
-        left_box.addRow(self.show_tags_btn)
+        left_box.addWidget(self.show_image)
+        left_box.addWidget(self.show_progress_bar)
+        left_box.addLayout(small_btns_hbox)
+
+        form_layout.addRow(show_progress_label)
+        form_layout.addRow(self.show_progress, self.show_progress_btn)
+        form_layout.addRow(show_score_label)
+        form_layout.addRow(self.show_score, self.show_score_btn)
+        form_layout.addRow(show_status_label, self.show_status)
+        form_layout.addRow(show_rewatches_label)
+        form_layout.addRow(self.show_rewatches, self.show_rewatches_btn)
+        form_layout.addRow(show_notes_label, self.show_notes_btn)
+
+        left_box.addLayout(form_layout)
+        left_box.addWidget(self.show_notes, 1)
 
         filter_bar_box_layout.addWidget(QLabel('Filter:'))
         filter_bar_box_layout.addWidget(self.show_filter)
@@ -430,11 +474,27 @@ class MainWindow(QMainWindow):
             self.list_box.addWidget(self.view)
             self.list_box.addWidget(self.filter_bar_box)
 
-        main_hbox.addLayout(left_box)
-        main_hbox.addLayout(self.list_box, 1)
+        # Wrap panels in widgets for the splitter
+        left_widget = QWidget()
+        left_widget.setLayout(left_box)
+        left_widget.setMinimumWidth(180)
+
+        right_widget = QWidget()
+        right_widget.setLayout(self.list_box)
+
+        self.main_splitter = QSplitter(QtCore.Qt.Orientation.Horizontal)
+        self.main_splitter.addWidget(left_widget)
+        self.main_splitter.addWidget(right_widget)
+        self.main_splitter.setStretchFactor(1, 1)
+        self.main_splitter.splitterMoved.connect(lambda: self._update_image())
+
+        # Restore splitter state
+        if 'splitter_state' in self.config:
+            self.main_splitter.restoreState(QtCore.QByteArray.fromBase64(
+                self.config['splitter_state'].encode('ascii')))
 
         main_layout.addLayout(top_hbox)
-        main_layout.addLayout(main_hbox)
+        main_layout.addWidget(self.main_splitter, 1)
 
         self.main_widget = QWidget(self)
         self.main_widget.setLayout(main_layout)
@@ -516,6 +576,17 @@ class MainWindow(QMainWindow):
             event.ignore()
             self._exit()
 
+    def resizeEvent(self, event):
+        if self.selected_show_id:
+            show = self.worker.engine.get_show_info(self.selected_show_id)
+            if show:
+                metrics = QtGui.QFontMetrics(self.show_title.font())
+                title = metrics.elidedText(
+                    show['title'], QtCore.Qt.TextElideMode.ElideRight, self.show_title.width())
+                self.show_title.setText(title)
+                self._update_image()
+        super().resizeEvent(event)
+
     def status(self, message):
         self.status_text.setText(message)
         print(message)
@@ -566,6 +637,11 @@ class MainWindow(QMainWindow):
         self.config['last_y'] = self.y()
         self.config['last_width'] = self.width()
         self.config['last_height'] = self.height()
+
+        # Store splitter state
+        state = self.main_splitter.saveState()
+        self.config['splitter_state'] = base64.b64encode(state.data()).decode('ascii')
+
         utils.save_config(self.config, self.configfile)
 
     def _store_columnstate(self):
@@ -587,6 +663,8 @@ class MainWindow(QMainWindow):
         self.action_retrieve.setEnabled(enable)
         self.action_reload.setEnabled(enable)
 
+        self.api_refresh.setEnabled(enable)
+
         self.show_filter.setEnabled(enable)
         self.show_filter_invert.setEnabled(enable)
         self.show_filter_casesens.setEnabled(enable)
@@ -596,12 +674,14 @@ class MainWindow(QMainWindow):
         self.show_score.setEnabled(enable)
         self.show_progress_btn.setEnabled(enable)
         self.show_score_btn.setEnabled(enable)
-        self.show_tags_btn.setEnabled(
-            bool(self.mediainfo and self.mediainfo.get('can_tag') and enable))
         self.show_inc_btn.setEnabled(enable)
         self.show_dec_btn.setEnabled(enable)
         self.show_play_btn.setEnabled(enable)
         self.show_status.setEnabled(enable)
+        self.show_rewatches.setEnabled(enable)
+        self.show_rewatches_btn.setEnabled(enable)
+        self.show_notes.setEnabled(enable)
+        self.show_notes_btn.setEnabled(enable)
         self.action_play_next.setEnabled(enable)
         self.action_play_dialog.setEnabled(enable)
         self.action_search_torrent.setEnabled(enable)
@@ -650,6 +730,9 @@ class MainWindow(QMainWindow):
                 model.setPalette(self.config['colors'])
             
             self.view.viewport().update()
+
+        # Apply engine specific changes
+        self.worker_call('apply_config', self.r_generic)
 
     def _apply_view(self):
         if self.config['inline_edit']:
@@ -807,6 +890,7 @@ class MainWindow(QMainWindow):
         # Unselect show
         if not show:
             self.selected_show_id = None
+            self.current_image_file = None
 
             self.show_title.setText('Trackma-qt')
             self.show_image.setText('Trackma-qt')
@@ -814,6 +898,8 @@ class MainWindow(QMainWindow):
             self.show_score.setValue(0)
             self.show_progress_bar.setValue(0)
             self.show_progress_bar.setFormat('?/?')
+            self.show_rewatches.setValue(0)
+            self.show_notes.setPlainText('')
             self._enable_show_widgets(False)
 
             return
@@ -847,6 +933,8 @@ class MainWindow(QMainWindow):
         self.show_status.setCurrentIndex(
             self.mediainfo['statuses'].index(show['my_status']))
         self.show_score.setValue(show['my_score'])
+        self.show_rewatches.setValue(show.get('my_rewatches', 0))
+        self.show_notes.setPlainText(show.get('my_notes', ''))
 
         # Enable relevant buttons
         self._enable_show_widgets(True)
@@ -857,7 +945,7 @@ class MainWindow(QMainWindow):
                 self.image_worker.cancel()
 
             utils.make_dir(utils.to_cache_path())
-            filename = utils.to_cache_path("%s_%s_%s.jpg" % (
+            filename = utils.to_cache_path("%s_%s_xl_%s.jpg" % (
                 self.api_info['shortname'], self.api_info['mediatype'], show['id']))
 
             if os.path.isfile(filename):
@@ -870,6 +958,7 @@ class MainWindow(QMainWindow):
                     self.show_image.setText('Not available')
         else:
             self.show_image.setText('No image')
+            self.current_image_file = None
 
         if show['total']:
             self.show_progress_bar.setValue(show['my_progress'])
@@ -1038,11 +1127,11 @@ class MainWindow(QMainWindow):
     def s_download_image(self):
         show = self.worker.engine.get_show_info(self.selected_show_id)
         self.show_image.setText('Downloading...')
-        filename = utils.to_cache_path("%s_%s_%s.jpg" % (
+        filename = utils.to_cache_path("%s_%s_xl_%s.jpg" % (
             self.api_info['shortname'], self.api_info['mediatype'], show['id']))
 
         self.image_worker = ImageWorker(
-            show.get('image_thumb') or show['image'], filename, (100, 140))
+            show.get('image') or show.get('image_thumb'), filename)
         self.image_worker.finished.connect(self.s_show_image)
         self.image_worker.start()
 
@@ -1120,6 +1209,18 @@ class MainWindow(QMainWindow):
             self._busy(True)
             self.worker_call('set_status', self.r_generic,
                              self.selected_show_id, self.mediainfo['statuses'][index])
+
+    def s_set_rewatches(self):
+        if self.selected_show_id:
+            self._busy(True)
+            self.worker_call('set_rewatches', self.r_generic,
+                             self.selected_show_id, self.show_rewatches.value())
+
+    def s_set_notes(self):
+        if self.selected_show_id:
+            self._busy(True)
+            self.worker_call('set_notes', self.r_generic,
+                             self.selected_show_id, self.show_notes.toPlainText())
 
     def s_set_tags(self):
         show = self.worker.engine.get_show_info(self.selected_show_id)
@@ -1242,7 +1343,25 @@ class MainWindow(QMainWindow):
         self.accountman_widget.show()
 
     def s_show_image(self, filename):
-        self.show_image.setPixmap(QtGui.QPixmap(filename))
+        self.current_image_file = filename
+        self._update_image()
+
+    def _update_image(self):
+        if not self.current_image_file or not os.path.isfile(self.current_image_file):
+            return
+
+        pixmap = QtGui.QPixmap(self.current_image_file)
+        if not pixmap.isNull():
+            # Use High-DPI aware scaling
+            dpr = self.show_image.devicePixelRatioF()
+            w = int(max(self.show_image.width(), 200) * dpr)
+            h = int(max(self.show_image.height(), 280) * dpr)
+            
+            pixmap = pixmap.scaled(w, h,
+                                   QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                   QtCore.Qt.TransformationMode.SmoothTransformation)
+            pixmap.setDevicePixelRatio(dpr)
+            self.show_image.setPixmap(pixmap)
 
     def s_show_details(self):
         if not self.selected_show_id:
@@ -1374,7 +1493,7 @@ class MainWindow(QMainWindow):
 
         self._update_prompt_active = True
         try:
-            reply = QMessageBox.question(self, "Update prompt",
+            reply = QMessageBox.question(None, "Update prompt",
                 f"Do you want to update {show['title']} to {episode}?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             

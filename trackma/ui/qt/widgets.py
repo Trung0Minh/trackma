@@ -27,6 +27,8 @@ from trackma.ui.qt.workers import ImageWorker
 
 
 class DetailsWidget(QWidget):
+    current_image_file = None
+
     def __init__(self, parent, worker):
         self.worker = worker
 
@@ -76,6 +78,10 @@ class DetailsWidget(QWidget):
         self.worker.set_function(function, ret_function, *args, **kwargs)
         self.worker.start()
 
+    def resizeEvent(self, event):
+        self._update_image()
+        super().resizeEvent(event)
+
     def load(self, show):
         metrics = QtGui.QFontMetrics(self.show_title.font())
         title = metrics.elidedText(
@@ -95,7 +101,7 @@ class DetailsWidget(QWidget):
         # Load show image
         if show.get('image'):
             utils.make_dir(utils.to_cache_path())
-            filename = utils.to_cache_path("%s_%s_f_%s.jpg" % (
+            filename = utils.to_cache_path("%s_%s_xl_%s.jpg" % (
                 api_info['shortname'], api_info['mediatype'], show['id']))
 
             if os.path.isfile(filename):
@@ -103,14 +109,32 @@ class DetailsWidget(QWidget):
             else:
                 self.show_image.setText('Downloading...')
                 self.image_worker = ImageWorker(
-                    show['image'], filename, (200, 280))
+                    show['image'], filename)
                 self.image_worker.finished.connect(self.s_show_image)
                 self.image_worker.start()
         else:
             self.show_image.setText('No image')
+            self.current_image_file = None
 
     def s_show_image(self, filename):
-        self.show_image.setPixmap(QtGui.QPixmap(filename))
+        self.current_image_file = filename
+        self._update_image()
+
+    def _update_image(self):
+        if not self.current_image_file or not os.path.isfile(self.current_image_file):
+            return
+
+        pixmap = QtGui.QPixmap(self.current_image_file)
+        if not pixmap.isNull():
+            dpr = self.show_image.devicePixelRatioF()
+            # In details widget, we use a fixed target size for the sidebar-like feel
+            w = int(200 * dpr)
+            h = int(280 * dpr)
+            pixmap = pixmap.scaled(w, h,
+                                   QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                                   QtCore.Qt.TransformationMode.SmoothTransformation)
+            pixmap.setDevicePixelRatio(dpr)
+            self.show_image.setPixmap(pixmap)
 
     def r_details_loaded(self, result):
         if result['success']:

@@ -49,11 +49,13 @@ class Data:
             'altnames': {}, 'library': {}, 'library_cache': {}, }
 
     autosend_timer = None
+    autoretrieve_timer = None
 
     signals = {
         'show_synced':       None,
         'sync_complete':     None,
         'queue_changed':     None,
+        'list_updated':      None,
     }
 
     def __init__(self, messenger, config, account, mediatype):
@@ -159,7 +161,8 @@ class Data:
                 self.process_queue()
 
             # Auto-retrieve: Redownload list if any autoretrieve condition is met
-            if (self.config['autoretrieve'] == 'always' or
+            if (self.config.get('autoretrieve_start') or
+                self.config['autoretrieve'] == 'always' or
                 (self.config['autoretrieve'] == 'days' and
                  time.time() - self.meta['lastget'] > self.config['autoretrieve_days'] * 84600) or
                     self.meta.get('version') != self.version):
@@ -185,6 +188,10 @@ class Data:
         if self.config['autosend'] in ('minutes', 'hours'):
             self.autosend()
 
+        # Create autoretrieve thread if needed
+        if self.config['autoretrieve'] == 'minutes':
+            self.autoretrieve()
+
         return (self.api.api_info, self.api.media_info())
 
     def unload(self, force=False):
@@ -200,6 +207,10 @@ class Data:
         # Cancel autosend thread
         if self.autosend_timer:
             self.autosend_timer.cancel()
+
+        # Cancel autoretrieve thread
+        if self.autoretrieve_timer:
+            self.autoretrieve_timer.cancel()
 
         # We push changes if specified on config file
         if not force:
@@ -505,6 +516,23 @@ class Data:
             self.autosend_timer.daemon = True
             self.autosend_timer.start()
 
+    def autoretrieve(self):
+        # Check if we should autoretrieve now
+        if (self.config['autoretrieve'] == 'always' or
+            (self.config['autoretrieve'] == 'minutes' and
+             time.time() - self.meta['lastget'] >= self.config['autoretrieve_minutes'] * 60)):
+            try:
+                self.process_queue()
+                self.download_data()
+            except utils.APIError as e:
+                self.msg.warn("Auto-retrieve failed: %s" % e)
+
+        # Repeat check only if the settings are still on autoretrieve minutes
+        if self.config['autoretrieve'] == 'minutes':
+            self.autoretrieve_timer = threading.Timer(60, self.autoretrieve)
+            self.autoretrieve_timer.daemon = True
+            self.autoretrieve_timer.start()
+
     def _load_cache(self):
         self.msg.debug("Reading cache...")
         self.showlist = utils.load_data(self.cache_file)
@@ -586,6 +614,7 @@ class Data:
         self.meta['version'] = self.version
         self.meta['apiversion'] = self.api_version
         self._save_meta()
+        self._emit_signal('list_updated')
 
     def _cache_exists(self):
         return os.path.isfile(self.cache_file)
@@ -622,3 +651,21 @@ class Data:
 
     def get_api_info(self):
         return (self.api.api_info, self.api.media_info())
+
+    def apply_config(self, config):
+        """Applies configuration changes."""
+        self.config = config
+
+        # Restart autosend if needed
+        if self.autosend_timer:
+            self.autosend_timer.cancel()
+            self.autosend_timer = None
+        if self.config['autosend'] in ('minutes', 'hours'):
+            self.autosend()
+
+        # Restart autoretrieve if needed
+        if self.autoretrieve_timer:
+            self.autoretrieve_timer.cancel()
+            self.autoretrieve_timer = None
+        if self.config['autoretrieve'] == 'minutes':
+            self.autoretrieve()

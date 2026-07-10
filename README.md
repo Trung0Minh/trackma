@@ -10,7 +10,7 @@ Features
 - Manage local list and synchronize when necessary, useful when offline
 - Manage multiple accounts on different media tracking sites
 - Support for several media types (as supported by the site)
-- Multiple user interfaces (Qt, GTK, curses, command-line)
+- Multiple user interfaces (Qt, GTK)
 - Detection of running media player, updates list if necessary
 - Ability to launch media player for a requested media in the list and update list if necessary
 - Highly scalable, easy to code new interfaces and support for other sites
@@ -36,14 +36,6 @@ GTK interface
 
 ![GTK](https://z411.github.io/trackma/images/screen_gtk.png)
 
-Curses interface
-
-![Curses](https://z411.github.io/trackma/images/screen_curses.png)
-
-CLI
-
-![CLI](https://z411.github.io/trackma/images/screen_cli.png)
-
 Dependencies
 ------------
 
@@ -52,16 +44,12 @@ The only required dependencies to run Trackma are:
 - Python 3.9+
 - For installation: `python3-pip` (to install through `pip`) *or* `python3-poetry` (to install through `poetry`)
 
-But only basic features will work (only CLI interface and no tracker). Everything else is optional.
-
 The following user interfaces are available and their requirements are as follows:
 
 | UI | Dependencies |
 | --- | --- |
 | Qt | PyQt6 (`python-pyqt6`) |
 | GTK 3 | PyGI (`python3-gi` and `python3-cairo`) |
-| curses | Urwid (`python3-urwid`) |
-| CLI | None |
 
 The following media recognition trackers are available and their requirements are as follows:
 
@@ -124,7 +112,7 @@ $ pip3 install dist/trackma-0.8.5-py3-none-any.whl
 
 ### Extras (User Interfaces)
 
-All user interfaces except for the default CLI mode require additional dependencies to function.
+User interfaces require additional dependencies to function.
 You may specify these as "extras" to be installed by the Python package manager.
 
 The following extras are available:
@@ -133,7 +121,6 @@ The following extras are available:
 | --- | --- |
 | `gtk` | The GTK interface. |
 | `qt` | The Qt interface. |
-| `curses` | The curses-based TUI. |
 | `ui` | All user interfaces. |
 | `trackers` | All tracker libraries. |
 | `discord_rpc` | Set your watching activity in Discord. |
@@ -145,7 +132,7 @@ If you want to install any of the extras be sure to specify them during installa
 
 ```sh
 # With pip
-$ pip3 install Trackma[gtk,trackers,curses]
+$ pip3 install Trackma[gtk,trackers]
 $ pip3 install Trackma[ui,twitter,discord_rpc]
 ```
 
@@ -155,8 +142,6 @@ so you'll have to provide them all manually if desired.
 Then you can run the program with the interface you like.
 
 ```sh
-$ trackma
-$ trackma-curses
 $ trackma-gtk
 $ trackma-qt
 ```
@@ -167,7 +152,7 @@ When using poetry on the cloned repository (see above),
 you can install your desired extras as follows:
 
 ```sh
-$ poetry install -E gtk -E trackers -E curses
+$ poetry install -E gtk -E trackers
 $ poetry install -E ui -E twitter -E discord_rpc
 $ poetry install --all-extras
 ```
@@ -175,8 +160,6 @@ $ poetry install --all-extras
 Then you can run the interface you like in your virtual environment managed by poetry:
 
 ```sh
-$ poetry run trackma
-$ poetry run trackma-curses
 $ poetry run trackma-gtk
 $ poetry run trackma-qt
 ```

@@ -78,6 +78,7 @@ class SettingsWindow(Gtk.Window):
     checkbox_tracker_not_found_prompt = Gtk.Template.Child()
 
     radiobutton_download_days = Gtk.Template.Child()
+    radiobutton_download_minutes = Gtk.Template.Child()
     radiobutton_download_always = Gtk.Template.Child()
     radiobutton_download_off = Gtk.Template.Child()
 
@@ -88,8 +89,11 @@ class SettingsWindow(Gtk.Window):
     checkbox_upload_exit = Gtk.Template.Child()
 
     spinbutton_download_days = Gtk.Template.Child()
+    spinbutton_download_minutes = Gtk.Template.Child()
     spinbutton_upload_minutes = Gtk.Template.Child()
     spinbutton_upload_size = Gtk.Template.Child()
+
+    entry_timezone = Gtk.Template.Child()
 
     checkbox_auto_status_change = Gtk.Template.Child()
     checkbox_auto_status_change_if_scored = Gtk.Template.Child()
@@ -140,6 +144,8 @@ class SettingsWindow(Gtk.Window):
 
         self.radiobutton_download_days.connect(
             "toggled", self._button_toggled, self.spinbutton_download_days)
+        self.radiobutton_download_minutes.connect(
+            "toggled", self._button_toggled, self.spinbutton_download_minutes)
         self.radiobutton_upload_minutes.connect(
             "toggled", self._button_toggled, self.spinbutton_upload_minutes)
         self.radiobutton_upload_size.connect(
@@ -212,6 +218,8 @@ class SettingsWindow(Gtk.Window):
             self.radiobutton_download_always.set_active(True)
         elif self.engine.get_config('autoretrieve') == 'days':
             self.radiobutton_download_days.set_active(True)
+        elif self.engine.get_config('autoretrieve') == 'minutes':
+            self.radiobutton_download_minutes.set_active(True)
         else:
             self.radiobutton_download_off.set_active(True)
 
@@ -229,10 +237,14 @@ class SettingsWindow(Gtk.Window):
 
         self.spinbutton_download_days.set_value(
             self.engine.get_config('autoretrieve_days'))
+        self.spinbutton_download_minutes.set_value(
+            self.engine.get_config('autoretrieve_minutes'))
         self.spinbutton_upload_minutes.set_value(
             self.engine.get_config('autosend_minutes'))
         self.spinbutton_upload_size.set_value(
             self.engine.get_config('autosend_size'))
+
+        self.entry_timezone.set_text(self.engine.get_config('timezone'))
 
         self.checkbox_auto_status_change.set_active(
             self.engine.get_config('auto_status_change'))
@@ -426,6 +438,8 @@ class SettingsWindow(Gtk.Window):
             self.engine.set_config('autoretrieve', 'always')
         elif self.radiobutton_download_days.get_active():
             self.engine.set_config('autoretrieve', 'days')
+        elif self.radiobutton_download_minutes.get_active():
+            self.engine.set_config('autoretrieve', 'minutes')
         else:
             self.engine.set_config('autoretrieve', 'off')
 
@@ -442,6 +456,8 @@ class SettingsWindow(Gtk.Window):
         self.engine.set_config(
             'autoretrieve_days', self.spinbutton_download_days.get_value_as_int())
         self.engine.set_config(
+            'autoretrieve_minutes', self.spinbutton_download_minutes.get_value_as_int())
+        self.engine.set_config(
             'autosend_minutes', self.spinbutton_upload_minutes.get_value_as_int())
         self.engine.set_config(
             'autosend_size', self.spinbutton_upload_size.get_value_as_int())
@@ -452,6 +468,7 @@ class SettingsWindow(Gtk.Window):
                                self.checkbox_auto_status_change_if_scored.get_active())
         self.engine.set_config(
             'auto_date_change', self.checkbox_auto_date_change.get_active())
+        self.engine.set_config('timezone', self.entry_timezone.get_text())
         self.engine.save_config()
 
         """GTK Interface configuration"""

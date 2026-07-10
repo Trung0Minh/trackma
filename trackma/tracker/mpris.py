@@ -398,7 +398,7 @@ class MprisTracker(tracker.TrackerBase):
                 # The view_offset is not important, so we ignore errors.
                 pass
 
-        if self.last_show_tuple:
+        if self.last_show_tuple and not self.last_updated:
             self.update_timer(self.last_state, self.last_show_tuple)
 
         if self.last_updated:

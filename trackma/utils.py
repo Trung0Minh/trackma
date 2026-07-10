@@ -585,6 +585,8 @@ def show():
         'my_progress':  0,
         'my_status':    1,
         'my_score':     0,
+        'my_rewatches': 0,
+        'my_notes':     '',
         'my_start_date':  None,
         'my_finish_date': None,
         'type':         0,
@@ -595,7 +597,7 @@ def show():
         'image':        '',
         'image_thumb':  '',
         'queued':       False,
-        'my_last-update': None
+        'my_last_update': None
     }
 
 
@@ -639,6 +641,7 @@ class APIFatal(TrackmaFatal):
 config_defaults = {
     'player': 'mpv',
     'searchdir': ['~/Videos'],
+    'timezone': '',
     'tracker_enabled': True,
     'tracker_update_wait_s': 120,
     'tracker_update_close': False,
@@ -647,9 +650,11 @@ config_defaults = {
     'tracker_interval': 10,
     'tracker_process': 'mplayer|mplayer2|mpv|celluloid|vlc',
     'tracker_ignore_not_next': True,
+    'autoretrieve_start': True,
     'autoretrieve': 'days',
     'autoretrieve_days': 3,
-    'autosend': 'minutes',
+    'autoretrieve_minutes': 60,
+    'autosend': 'always',
     'autosend_minutes': 60,
     'autosend_size': 5,
     'autosend_at_exit': True,
@@ -815,6 +820,31 @@ qt_per_api_defaults = {
     'columns_state': None,
 }
 
+PREFERRED_TIMEZONE = None
+
+def get_timezone(tz_str):
+    if not tz_str:
+        return None
+    try:
+        # Try as offset first, e.g. +0700
+        if tz_str.startswith(('+', '-')) and len(tz_str) >= 3:
+            hours = int(tz_str[1:3])
+            minutes = int(tz_str[3:5]) if len(tz_str) >= 5 else 0
+            if tz_str.startswith('-'):
+                hours, minutes = -hours, -minutes
+            return datetime.timezone(datetime.timedelta(hours=hours, minutes=minutes))
+
+        # Try as name
+        try:
+            import zoneinfo
+            return zoneinfo.ZoneInfo(tz_str)
+        except ImportError:
+            # Fallback for older Python or systems without zoneinfo
+            import pytz
+            return pytz.timezone(tz_str)
+    except Exception:
+        return None
+
 def format_local_time(
     dt,
     fallback_message='No data',
@@ -823,6 +853,6 @@ def format_local_time(
     if dt is None or dt.tzinfo is None:
         return fallback_message
     try:
-        return dt.astimezone().strftime(locale.nl_langinfo(locale.D_T_FMT))
+        return dt.astimezone(PREFERRED_TIMEZONE).strftime(locale.nl_langinfo(locale.D_T_FMT))
     except ValueError:
         return error_message

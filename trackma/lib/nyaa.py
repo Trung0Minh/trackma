@@ -1,5 +1,7 @@
 import requests
 import urllib.parse
+import re
+import time
 from bs4 import BeautifulSoup
 
 class NyaaSearcher:
@@ -30,14 +32,19 @@ class NyaaSearcher:
         if self.msg:
             self.msg.debug(f"Nyaa: Scraping search results for {query} at {url}")
             
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()
-        except Exception as e:
-            if self.msg:
-                self.msg.warn(f"Nyaa: Failed to fetch page - {e}")
-            return []
+        response = None
+        for attempt in range(3):
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(url, headers=headers, timeout=20)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                if self.msg:
+                    self.msg.warn(f"Nyaa: Failed to fetch page (attempt {attempt+1}/3) - {e}")
+                if attempt == 2:
+                    return []
+                time.sleep(1)
 
         soup = BeautifulSoup(response.text, 'lxml')
         results = []
@@ -94,3 +101,52 @@ class NyaaSearcher:
             })
 
         return results
+
+    def get_description(self, url):
+        """
+        Fetch and return all information of a torrent from its Nyaa page.
+        """
+        if self.msg:
+            self.msg.debug(f"Nyaa: Fetching full info from {url}")
+
+        response = None
+        for attempt in range(3):
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(url, headers=headers, timeout=20)
+                response.raise_for_status()
+                break
+            except Exception as e:
+                if self.msg:
+                    self.msg.warn(f"Nyaa: Failed to fetch info (attempt {attempt+1}/3) - {e}")
+                if attempt == 2:
+                    return "Failed to fetch information."
+                time.sleep(1)
+
+        soup = BeautifulSoup(response.text, 'lxml')
+        
+        # Remove all images
+        for img in soup.find_all('img'):
+            img.decompose()
+
+        # Description
+        desc_div = soup.find('div', id='torrent-description')
+        desc_content = desc_div.decode_contents().strip() if desc_div else "_No description available._"
+
+        # File list (HTML)
+        file_list_div = soup.find('div', class_='torrent-file-list')
+        file_list_html = ""
+        if file_list_div:
+            panel = file_list_div.find_parent('div', class_='panel')
+            file_list_html = str(panel) if panel else str(file_list_div)
+
+        # Comments (HTML)
+        comments_div = soup.find('div', id='comments')
+        comments_html = ""
+        if comments_div:
+            comments_html = str(comments_div)
+
+        # Construct final content string
+        full_content = f"{desc_content}\n\n---\n\n{file_list_html}\n\n---\n\n{comments_html}"
+        
+        return full_content

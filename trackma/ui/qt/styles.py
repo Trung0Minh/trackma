@@ -47,6 +47,11 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QPlainTextEdit {
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus, QPlainTextEdit:focus {
     border-color: #6366f1;
 }
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, QComboBox:disabled, QPlainTextEdit:disabled {
+    background-color: #0f172a;
+    color: #64748b;
+    border: 1px solid #1e293b;
+}
 
 QPushButton {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #6366f1, stop:1 #a855f7);
@@ -59,6 +64,11 @@ QPushButton {
 QPushButton:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #4f46e5, stop:1 #9333ea);
 }
+QPushButton:disabled {
+    background: #1e293b;
+    color: #64748b;
+    border: 1px solid #1e293b;
+}
 
 QToolButton {
     background-color: #1e293b;
@@ -70,6 +80,63 @@ QToolButton {
 QToolButton:hover {
     border-color: #6366f1;
     background-color: rgba(99, 102, 241, 0.1);
+}
+QToolButton:disabled {
+    background-color: #0f172a;
+    border-color: #1e293b;
+    color: #64748b;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 15px;
+    border-left-width: 0px;
+}
+QComboBox QAbstractItemView {
+    background-color: #111827;
+    color: #f3f4f6;
+    border: 1px solid #1e293b;
+    selection-background-color: #6366f1;
+}
+
+QScrollBar:vertical {
+    border: none;
+    background: #111827;
+    width: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:vertical {
+    background: #1e293b;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #6366f1;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    border: none;
+    background: none;
+    height: 0px;
+}
+QScrollBar:horizontal {
+    border: none;
+    background: #111827;
+    height: 10px;
+    margin: 0px;
+}
+QScrollBar::handle:horizontal {
+    background: #1e293b;
+    min-width: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #6366f1;
+}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    border: none;
+    background: none;
+    width: 0px;
 }
 
 QMenu {
