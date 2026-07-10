@@ -13,7 +13,7 @@ def test_show_card_widget():
     dummy_show = {
         'id': 123,
         'title': 'Frieren',
-        'total_episodes': 28,
+        'total': 28,
         'my_progress': 10,
         'image': None
     }
@@ -26,7 +26,7 @@ def test_show_card_widget():
     widget.set_selected(True)
     assert widget.selected is True
 
-    # Test update_data
+    # Test update_data with unknown total
     dummy_show_unknown = {
         'id': 123,
         'title': 'Frieren',

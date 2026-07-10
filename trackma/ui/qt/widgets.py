@@ -298,14 +298,15 @@ class ShowCardWidget(QFrame):
     clicked = QtCore.pyqtSignal(int)
     play_clicked = QtCore.pyqtSignal(int)
 
-    def __init__(self, show_data, parent=None):
+    def __init__(self, show_data, cached_image_path=None, parent=None):
         super().__init__(parent)
         self.show_data = show_data
         self.show_id = show_data['id']
+        self.cached_image_path = cached_image_path
         self.selected = False
         self.setObjectName("ShowCard")
         self.setFrameShape(QFrame.Shape.StyledPanel)
-
+        
         self.setStyleSheet("""
             QFrame#ShowCard {
                 background-color: #1e293b;
@@ -370,17 +371,19 @@ class ShowCardWidget(QFrame):
         info_layout.addWidget(self.progress_bar)
 
         self.main_layout.addWidget(self.info_panel)
-        self.update_data(show_data)
+        self.update_data(show_data, cached_image_path)
 
-    def update_data(self, show_data):
+    def update_data(self, show_data, cached_image_path=None):
         self.show_data = show_data
-        metrics = QtGui.QFontMetrics(self.title_label.font())
-        elided_title = metrics.elidedText(show_data['title'], QtCore.Qt.TextElideMode.ElideRight, 120)
-        self.title_label.setText(elided_title)
+        if cached_image_path:
+            self.cached_image_path = cached_image_path
 
-        total_eps = show_data.get('total_episodes') or show_data.get('episodes') or 0
+        # Set title (elided based on current label width)
+        self.update_title()
+
+        total_eps = show_data.get('total') or show_data.get('total_episodes') or show_data.get('episodes') or 0
         my_progress = show_data.get('my_progress', 0)
-
+        
         if total_eps > 0:
             self.progress_label.setText(f"Ep {my_progress} / {total_eps}")
             self.progress_bar.setMaximum(total_eps)
@@ -392,11 +395,18 @@ class ShowCardWidget(QFrame):
 
         self.load_poster()
 
+    def update_title(self):
+        metrics = QtGui.QFontMetrics(self.title_label.font())
+        # Use title label width if available and larger than 20px, otherwise fallback to 120px
+        width = self.title_label.width()
+        if width < 20:
+            width = 120
+        elided_title = metrics.elidedText(self.show_data['title'], QtCore.Qt.TextElideMode.ElideRight, width)
+        self.title_label.setText(elided_title)
+
     def load_poster(self):
-        # Resolve image path via local thumbnail managers or caching
-        image_path = self.show_data.get('image')
-        if image_path and os.path.isfile(image_path):
-            pixmap = QtGui.QPixmap(image_path)
+        if self.cached_image_path and os.path.isfile(self.cached_image_path):
+            pixmap = QtGui.QPixmap(self.cached_image_path)
             if not pixmap.isNull():
                 dpr = self.devicePixelRatioF()
                 w = int(140 * dpr)
@@ -421,10 +431,18 @@ class ShowCardWidget(QFrame):
             }
         """)
 
+    def set_poster_image(self, cached_image_path):
+        self.cached_image_path = cached_image_path
+        self.load_poster()
+
     def set_selected(self, selected):
         self.selected = selected
         self.setProperty("selected", "true" if selected else "false")
         self.style().polish(self)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.update_title()
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
