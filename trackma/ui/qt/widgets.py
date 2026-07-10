@@ -296,7 +296,6 @@ class AddTableDetailsView(QSplitter):
 
 class ShowCardWidget(QFrame):
     clicked = QtCore.pyqtSignal(int)
-    play_clicked = QtCore.pyqtSignal(int)
 
     def __init__(self, show_data, cached_image_path=None, parent=None):
         super().__init__(parent)
@@ -408,6 +407,8 @@ class ShowCardWidget(QFrame):
         if self.cached_image_path and os.path.isfile(self.cached_image_path):
             pixmap = QtGui.QPixmap(self.cached_image_path)
             if not pixmap.isNull():
+                self.poster_label.setStyleSheet("")
+                self.poster_label.setText("")
                 dpr = self.devicePixelRatioF()
                 w = int(140 * dpr)
                 h = int(210 * dpr)
@@ -498,11 +499,13 @@ class ShowsGridView(QScrollArea):
         self.reload_grid()
 
     def reload_grid(self):
-        # Clear existing layout
+        # Clear existing layout and call deleteLater to avoid leaks
         for i in reversed(range(self.grid_layout.count())):
             item = self.grid_layout.itemAt(i)
             if item and item.widget():
-                item.widget().setParent(None)
+                w = item.widget()
+                w.setParent(None)
+                w.deleteLater()
         self.cards.clear()
 
         if not self.model or not self.api_info:
@@ -516,13 +519,15 @@ class ShowsGridView(QScrollArea):
                 source_index = self.model.index(row, 0)
                 source_model = self.model
             
+            if source_model is None or not source_index.isValid() or source_index.row() < 0:
+                continue
+
             show_data = source_model.showlist[source_index.row()]
             
             # Resolve image filename in local cache
             cached_image_path = None
             if show_data.get('image'):
                 utils.make_dir(utils.to_cache_path())
-                # Use standard medium size cached format (or xl)
                 cached_image_path = utils.to_cache_path("%s_%s_f_%s.jpg" % (
                     self.api_info['shortname'], self.api_info['mediatype'], show_data['id']))
                 
@@ -565,6 +570,10 @@ class ShowsGridView(QScrollArea):
             else:
                 source_index = self.model.index(row, 0)
                 source_model = self.model
+            
+            if source_model is None or not source_index.isValid() or source_index.row() < 0:
+                continue
+
             show_data = source_model.showlist[source_index.row()]
             if show_data['id'] in self.cards:
                 self.cards[show_data['id']].update_data(show_data)
