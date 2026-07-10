@@ -17,8 +17,8 @@
 import os
 
 from PyQt6 import QtCore, QtGui
-from PyQt6.QtWidgets import (QAbstractItemView, QGridLayout, QHeaderView, QLabel, QListView, QScrollArea, QSplitter,
-                             QTableView, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QHeaderView, QLabel, QListView,
+                             QProgressBar, QScrollArea, QSizePolicy, QSplitter, QTableView, QVBoxLayout, QWidget)
 
 from trackma import utils
 from trackma.ui.qt.delegates import AddListDelegate, ShowsTableDelegate
@@ -292,3 +292,142 @@ class AddTableDetailsView(QSplitter):
 
     def clearSelection(self):
         return self.table.clearSelection()
+
+
+class ShowCardWidget(QFrame):
+    clicked = QtCore.pyqtSignal(int)
+    play_clicked = QtCore.pyqtSignal(int)
+
+    def __init__(self, show_data, parent=None):
+        super().__init__(parent)
+        self.show_data = show_data
+        self.show_id = show_data['id']
+        self.selected = False
+        self.setObjectName("ShowCard")
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+
+        self.setStyleSheet("""
+            QFrame#ShowCard {
+                background-color: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 8px;
+            }
+            QFrame#ShowCard[selected="true"] {
+                border: 2px solid #a855f7;
+            }
+        """)
+
+        # Layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # Poster Image
+        self.poster_label = QLabel(self)
+        self.poster_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.poster_label.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+        self.main_layout.addWidget(self.poster_label)
+
+        # Metadata Overlay Box
+        self.info_panel = QFrame(self)
+        self.info_panel.setStyleSheet("""
+            QFrame {
+                background: rgba(15, 23, 42, 0.95);
+                border-top: 1px solid #334155;
+                border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;
+            }
+        """)
+        info_layout = QVBoxLayout(self.info_panel)
+        info_layout.setContentsMargins(8, 8, 8, 8)
+        info_layout.setSpacing(4)
+
+        self.title_label = QLabel(self.info_panel)
+        self.title_label.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 11px;")
+        info_layout.addWidget(self.title_label)
+
+        self.progress_label = QLabel(self.info_panel)
+        self.progress_label.setStyleSheet("color: #9ca3af; font-size: 9px;")
+        info_layout.addWidget(self.progress_label)
+
+        self.progress_bar = QProgressBar(self.info_panel)
+        self.progress_bar.setFixedHeight(4)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: #334155;
+                border-radius: 2px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6366f1, stop:1 #a855f7);
+                border-radius: 2px;
+            }
+        """)
+        info_layout.addWidget(self.progress_bar)
+
+        self.main_layout.addWidget(self.info_panel)
+        self.update_data(show_data)
+
+    def update_data(self, show_data):
+        self.show_data = show_data
+        metrics = QtGui.QFontMetrics(self.title_label.font())
+        elided_title = metrics.elidedText(show_data['title'], QtCore.Qt.TextElideMode.ElideRight, 120)
+        self.title_label.setText(elided_title)
+
+        total_eps = show_data.get('total_episodes') or show_data.get('episodes') or 0
+        my_progress = show_data.get('my_progress', 0)
+
+        if total_eps > 0:
+            self.progress_label.setText(f"Ep {my_progress} / {total_eps}")
+            self.progress_bar.setMaximum(total_eps)
+            self.progress_bar.setValue(my_progress)
+            self.progress_bar.show()
+        else:
+            self.progress_label.setText(f"Ep {my_progress} / ?")
+            self.progress_bar.hide()
+
+        self.load_poster()
+
+    def load_poster(self):
+        # Resolve image path via local thumbnail managers or caching
+        image_path = self.show_data.get('image')
+        if image_path and os.path.isfile(image_path):
+            pixmap = QtGui.QPixmap(image_path)
+            if not pixmap.isNull():
+                dpr = self.devicePixelRatioF()
+                w = int(140 * dpr)
+                h = int(210 * dpr)
+                pixmap = pixmap.scaled(w, h,
+                                       QtCore.Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                       QtCore.Qt.TransformationMode.SmoothTransformation)
+                pixmap.setDevicePixelRatio(dpr)
+                self.poster_label.setPixmap(pixmap)
+                return
+
+        # Fallback linear gradient styled label
+        self.poster_label.setText(self.show_data['title'][:2].upper())
+        self.poster_label.setStyleSheet("""
+            QLabel {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #1e1b4b, stop:1 #311042);
+                color: #a5b4fc;
+                font-size: 24px;
+                font-weight: bold;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+        """)
+
+    def set_selected(self, selected):
+        self.selected = selected
+        self.setProperty("selected", "true" if selected else "false")
+        self.style().polish(self)
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.show_id)
+        super().mousePressEvent(event)
+
