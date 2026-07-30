@@ -27,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 from enum import Enum, auto
 
@@ -386,33 +387,89 @@ def estimate_aired_episodes(show):
 def normalize_title(title):
     """
     Normalize title for better matching.
-    Inspired by Taiga's recognition_normalize.cpp
+    Mirrors Taiga's recognition normalization closely enough for Trackma's
+    filename-to-list matching.
     """
     if not title:
         return ""
-    
-    # Lowercase and standard substitutions
-    title = title.lower()
-    
-    # Roman numerals (simplified)
-    title = re.sub(r'\bii\b', '2', title)
-    title = re.sub(r'\biii\b', '3', title)
-    title = re.sub(r'\biv\b', '4', title)
-    title = re.sub(r'\bv\b', '5', title)
-    
-    # Season numbers
-    title = re.sub(r'\b(s|season|series)\s?(\d+)\b', r' \2 ', title)
-    title = re.sub(r'\b(\d+)(st|nd|rd|th)\s+(season|series)\b', r' \1 ', title)
-    
-    # Common removals
-    title = re.sub(r'\b(tv|the animation|episode|ova|ona)\b', '', title)
-    
-    # Remove punctuation/symbols (keep alphanumerics and spaces)
-    title = re.sub(r'[^a-z0-9\s]', ' ', title)
-    
-    # Collapse whitespace
+
+    replacements = {
+        '@': 'a',
+        '×': 'x',
+        '꞉': ':',
+        'Ō': 'ou',
+        'ō': 'ou',
+        'ū': 'uu',
+    }
+    for before, after in replacements.items():
+        title = title.replace(before, after)
+
+    title = unicodedata.normalize('NFKC', title)
+    title = ''.join(
+        char for char in title
+        if unicodedata.category(char) not in {'Mn', 'Cc', 'Cf'}
+    ).casefold()
+
+    for before, after in (
+        ('xiii', '13'),
+        ('xii', '12'),
+        ('xi', '11'),
+        ('viii', '8'),
+        ('vii', '7'),
+        ('vi', '6'),
+        ('iii', '3'),
+        ('ii', '2'),
+        ('ix', '9'),
+        ('iv', '4'),
+        ('v', '5'),
+    ):
+        title = re.sub(r'\b{}\b'.format(before), after, title)
+
+    for before, after in (
+        ('first', '1st'),
+        ('second', '2nd'),
+        ('third', '3rd'),
+        ('fourth', '4th'),
+        ('fifth', '5th'),
+        ('sixth', '6th'),
+        ('seventh', '7th'),
+        ('eighth', '8th'),
+        ('ninth', '9th'),
+    ):
+        title = re.sub(r'\b{}\b'.format(before), after, title)
+
+    for number in range(1, 7):
+        ordinal_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number, 'th')
+        patterns = (
+            '{}{} season'.format(number, ordinal_suffix),
+            'season {}'.format(number),
+            'series {}'.format(number),
+            's{}'.format(number),
+        )
+        for pattern in patterns:
+            title = re.sub(r'\b{}\b'.format(pattern), str(number), title)
+
+    title = title.replace('&', ' and ')
+
+    for before, after in (
+        ('the animation', ''),
+        ('the', ''),
+        ('episode', ''),
+        ('oad', 'ova'),
+        ('oav', 'ova'),
+        ('specials', 'sp'),
+        ('special', 'sp'),
+        ('tv', ''),
+    ):
+        title = re.sub(r'\b{}\b'.format(re.escape(before)), after, title)
+
     title = re.sub(r'\s+', ' ', title).strip()
-    
+    title = ''.join(
+        char for char in title
+        if char.isalnum() or char.isspace()
+    )
+    title = re.sub(r'\s+', ' ', title).strip()
+
     return title
 
 def guess_show(show_title, tracker_list):
