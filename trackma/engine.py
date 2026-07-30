@@ -961,19 +961,15 @@ class Engine:
 
     def _add_show_to_library(self, library, library_cache, rescan, fullpath, filename, tracker_list, guess_show):
         show_id = None
-        if not rescan and filename in library_cache:
+        if not rescan and filename in library_cache and library_cache[filename]:
             # If the filename was already seen before
             # use the cached information, if there's no information (None)
-            # then it means it doesn't correspond to any show in the list
-            # and can be safely skipped.
-            if library_cache[filename]:
-                (show_id, show_ep) = library_cache[filename]
-                if type(show_ep) is tuple:
-                    (show_ep_start, show_ep_end) = show_ep
-                else:
-                    show_ep_start = show_ep_end = show_ep
+            # then re-check it in case titles, aliases or matching rules changed.
+            (show_id, show_ep) = library_cache[filename]
+            if type(show_ep) is tuple:
+                (show_ep_start, show_ep_end) = show_ep
             else:
-                return library, library_cache
+                show_ep_start = show_ep_end = show_ep
         else:
             # If the filename has not been seen, extract
             # the information from the filename and do a fuzzy search
