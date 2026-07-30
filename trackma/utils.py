@@ -492,6 +492,18 @@ def guess_show(show_title, tracker_list):
             if normalize_title(title) == norm_filename_title:
                 return item
 
+    # Taiga's scorer can still identify shortened release titles against
+    # longer official aliases. Cover that common fansub case before the
+    # general fuzzy fallback, e.g. "Kamiina Botan" inside the full romaji title.
+    if len(norm_filename_title.split()) >= 2:
+        for item in showlist.values():
+            for title in item['titles']:
+                norm_title = normalize_title(title)
+                if (norm_title.startswith(norm_filename_title + ' ') or
+                        norm_title.endswith(' ' + norm_filename_title) or
+                        (' ' + norm_filename_title + ' ') in (' ' + norm_title + ' ')):
+                    return item
+
     # --- Fuzzy Match Fallback ---
     # Use difflib to see if the show title is similar to
     # one we have in the list

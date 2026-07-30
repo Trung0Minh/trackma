@@ -44,3 +44,12 @@ def test_guess_show_matches_taiga_special_abbreviations():
     result = utils.guess_show('Non Non Biyori Specials', _tracker_list(expected))
 
     assert result is expected
+
+
+def test_guess_show_matches_short_filename_title_inside_long_alias():
+    expected = _show(1, ['Botan Kamiina Fully Blossoms When Drunk',
+                         'Kamiina Botan, Yoeru Sugata wa Yuri no Hana'])
+
+    result = utils.guess_show('Kamiina Botan', _tracker_list(expected))
+
+    assert result is expected
