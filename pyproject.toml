@@ -1,14 +1,13 @@
-[tool.poetry]
+[project]
 name = "trackma"
 version = "0.10.3"
 description = "Open multi-site list manager"
-authors = ["z411 <z411@omaera.org>"]
+authors = [{ name = "z411", email = "z411@omaera.org" }]
 license = "GPL-3.0-or-later"
 readme = "README.md"
-homepage = "https://z411.github.io/trackma/"
-repository = "https://github.com/z411/trackma"
+requires-python = ">=3.9,<4.0"
 keywords = [
-    "list manager", "gtk", "qt", "myanimelist",
+    "list manager", "qt", "myanimelist",
     "kitsu", "anilist", "shikimori",  "vndb"
 ]
 classifiers = [
@@ -26,35 +25,74 @@ classifiers = [
     "Operating System :: POSIX",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
 ]
+dependencies = [
+    "requests>=2.32,<3.0",
+    "beautifulsoup4>=4.12,<5.0",
+    "lxml>=6.1,<7.0",
+]
 
+[project.urls]
+Homepage = "https://z411.github.io/trackma/"
+Repository = "https://github.com/z411/trackma"
 
-[tool.poetry.dependencies]
-python = "^3.9"
-inotify = { version = "^0.2.10", optional = true }
-pillow = { version = "^11.0.0", optional = true }
-pycairo = { version = "^1.20.0", optional = true }
-pygobject = { version = "^3.42.1", optional = true }
-pyinotify = { version = "^0.9.6", optional = true }
-pypresence = { version = "^4.2.1", optional = true }
-pyqt6 = { version = "^6.2.0", optional = true }
-requests-oauthlib = { version = "^1.2.0 || ^2.0.0", optional = true }
-twitter = { version = "^1.19.3", optional = true }
-jeepney = {version = "^0.8.0", optional = true}
-anitopy = {version = "^2.0.0", optional = true}
+[project.optional-dependencies]
+qt = ["PyQt6>=6.2,<7.0", "PyQt6-WebEngine>=6.2,<7.0", "Pillow>=11.0,<12.0"]
+ui = ["PyQt6>=6.2,<7.0", "PyQt6-WebEngine>=6.2,<7.0", "Pillow>=11.0,<12.0"]
+trackers = [
+    "inotify>=0.2.10,<0.3",
+    "pyinotify>=0.9.6,<0.10",
+    "jeepney>=0.8,<0.9",
+]
+discord_rpc = ["pypresence>=4.2.1,<5.0"]
+twitter = ["twitter>=1.19.3,<2.0", "requests-oauthlib>=1.2,<3.0"]
+anitopy = ["anitopy>=2.0,<3.0"]
 
-[tool.poetry.extras]
-gtk = ["pygobject", "pycairo", "pillow"]
-qt = ["pyqt6", "pillow"]
-ui = ["pygobject", "pycairo", "pillow", "pyqt6"]
-trackers = ["inotify", "pyinotify", "jeepney"]
-discord_rpc = ["pypresence"]
-twitter = ["twitter", "requests-oauthlib"]
-anitopy = ["anitopy"]
+[project.scripts]
+trackma = "trackma.ui.web:main"
+trackma-qt = "trackma.ui.web:main"
 
-[tool.poetry.scripts]
-trackma-gtk = "trackma.ui.gtk:main"
-trackma-qt = "trackma.ui.qt:main"
+[tool.poetry]
+exclude = ["trackma/ui/web/frontend"]
+include = [
+    { path = "trackma/data", format = ["sdist", "wheel"] },
+    { path = "trackma/ui/web/assets", format = ["sdist", "wheel"] },
+    { path = "trackma/ui/web/frontend/src", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/e2e", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/.gitignore", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/.oxlintrc.json", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/README.md", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/index.html", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/package.json", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/package-lock.json", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/playwright.config.ts", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/tsconfig.json", format = ["sdist"] },
+    { path = "trackma/ui/web/frontend/vite.config.js", format = ["sdist"] },
+]
+
+[tool.poetry.group.dev.dependencies]
+build = "^1.2.2"
+mypy = "^1.14.0"
+pip-audit = "^2.7.3"
+pytest = "^8.3.4"
+pytest-cov = "^6.0.0"
+pytest-qt = "^4.4.0"
+ruff = "^0.9.0"
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py39"
+exclude = ["taiga"]
+
+[tool.mypy]
+python_version = "3.9"
+allow_untyped_globals = true
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+exclude = "^taiga/"
 
 [build-system]
-requires = ["poetry-core"]
+requires = ["poetry-core>=1.8,<3.0"]
 build-backend = "poetry.core.masonry.api"

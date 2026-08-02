@@ -95,6 +95,7 @@ class libvndb(lib):
         self.context = ssl.create_default_context()
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(20)
             self.s = self.context.wrap_socket(s, server_hostname=self.hostname)
             self.s.connect((self.hostname, self.tls))
         except socket.error:
@@ -120,8 +121,14 @@ class libvndb(lib):
 
         # Construct response
         lines = []
+        response_size = 0
         while True:
             line = self.s.recv(65536)
+            if not line:
+                raise utils.APIError("Connection closed before VNDB sent a complete response.")
+            response_size += len(line)
+            if response_size > utils.MAX_RESPONSE_BYTES:
+                raise utils.APIError("VNDB response exceeds the size limit.")
             if line.endswith(b"\x04"):
                 line = line.strip(b"\x04")
                 lines.append(line)
@@ -362,8 +369,6 @@ class libvndb(lib):
             show['status'] = utils.Status.FINISHED
 
     def _parse_info(self, item):
-        start_date = self._str2date(item['released'])
-
         info = utils.show()
         info.update({'id': item['id'],
                      'title': item['title'],

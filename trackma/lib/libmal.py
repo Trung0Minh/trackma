@@ -171,7 +171,6 @@ class libmal(lib):
         if post:
             post = urllib.parse.urlencode(post).encode('utf-8')
             content_type = 'application/x-www-form-urlencoded'
-            self.msg.debug("POST data: " + str(post))
 
         self.msg.debug(method + " URL: " + url)
         request = urllib.request.Request(url, post)
@@ -187,12 +186,13 @@ class libmal(lib):
             ))
 
         try:
-            response = self.opener.open(request)
+            response = self.opener.open(request, timeout=20)
 
             if response.info().get('content-encoding') == 'gzip':
-                response = gzip.GzipFile(fileobj=response).read().decode('utf-8')
+                response = utils.read_response_limited(
+                    gzip.GzipFile(fileobj=response)).decode('utf-8')
             else:
-                response = response.read().decode('utf-8')
+                response = utils.read_response_limited(response).decode('utf-8')
 
             return json.loads(response)
         except urllib.error.HTTPError as e:
@@ -201,6 +201,8 @@ class libmal(lib):
             raise utils.APIError("URL error: %s" % e)
         except socket.timeout:
             raise utils.APIError("Operation timed out.")
+        except ValueError as e:
+            raise utils.APIError(str(e))
 
     def _request_access_token(self, refresh=False):
         """
@@ -321,7 +323,8 @@ class libmal(lib):
     def delete_show(self, item):
         self.check_credentials()
         self.msg.info("Deleting item %s..." % item['title'])
-        data = self._request('DELETE', self.query_url + '/%s/%d/my_list_status' % (self.mediatype, item['id']), auth=True)
+        self._request('DELETE', self.query_url + '/%s/%d/my_list_status' % (
+            self.mediatype, item['id']), auth=True)
 
     def search(self, criteria, method):
         self.check_credentials()

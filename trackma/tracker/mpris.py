@@ -18,11 +18,10 @@ from enum import Enum
 import os
 import re
 import sys
-import threading
 import time
 import urllib.parse
 import asyncio
-from typing import Any, Dict, Union
+from typing import Dict, Union
 from dataclasses import dataclass
 from collections import deque
 
@@ -130,9 +129,6 @@ class MprisTracker(tracker.TrackerBase):
     name = 'Tracker (MPRIS)'
 
     def __init__(self, *args, **kwargs):
-        # The `TrackerBase.__init__` spawns a new thread
-        # for `observe`.
-        self.initialized = threading.Event()
         super().__init__(*args, **kwargs)
 
         self.re_players = re.compile(self.config['tracker_process'])
@@ -142,7 +138,6 @@ class MprisTracker(tracker.TrackerBase):
         self.players = {}
         self.timing = False
         self.active_player = None
-        self.initialized.set()
 
     def update_list(self, *args, **kwargs):
         super().update_list(*args, **kwargs)
@@ -153,19 +148,19 @@ class MprisTracker(tracker.TrackerBase):
 
     def observe(self, config, watch_dirs):
         self.msg.info("Using MPRIS.")
-        self.initialized.wait()
 
         # Permit 5 starts within 60 seconds,
         # waiting for 5s between each retry.
         # If it fails more frequently,
         # we consider the tracker to be broken and let it die.
         start_times = deque(maxlen=5)
-        while len(start_times) < 5 or start_times[0] + 60 < time.time():
+        while self.active and (len(start_times) < 5 or start_times[0] + 60 < time.time()):
             start_times.append(time.time())
             asyncio.run(self.observe_async())
-            time.sleep(5)
+            self._stop_event.wait(5)
 
-        self.msg.warn("Reached restart limit for MPRIS tracker.")
+        if self.active:
+            self.msg.warn("Reached restart limit for MPRIS tracker.")
 
     async def observe_async(self):
         async with open_dbus_router() as router:
@@ -214,9 +209,12 @@ class MprisTracker(tracker.TrackerBase):
         await message_proxy.AddMatch(match_rule)
 
         with router.filter(match_rule, bufsize=20) as queue:
-            while True:
+            while self.active:
                 # https://dbus.freedesktop.org/doc/dbus-specification.html#bus-messages-name-owner-changed
-                msg = await queue.get()
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=1)
+                except asyncio.TimeoutError:
+                    continue
                 (wellknown_name, old_name, new_name) = msg.body
                 if old_name:
                     self.on_bus_removed(wellknown_name, old_name)
@@ -258,8 +256,11 @@ class MprisTracker(tracker.TrackerBase):
         await message_proxy.AddMatch(match_rule)
 
         with router.filter(match_rule, bufsize=10) as queue:
-            while True:
-                msg = await queue.get()
+            while self.active:
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=1)
+                except asyncio.TimeoutError:
+                    continue
                 self.handle_properties_changed(msg)
 
     def handle_properties_changed(self, msg):
@@ -384,7 +385,7 @@ class MprisTracker(tracker.TrackerBase):
             self.msg.debug("MPRIS timer paused.")
 
     async def _timer(self):
-        while True:
+        while self.active:
             if self.timing:
                 await self._on_tick()
             await asyncio.sleep(1, True)

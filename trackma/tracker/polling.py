@@ -16,7 +16,6 @@
 
 import os
 import subprocess
-import time
 
 from trackma import utils
 from trackma.tracker import tracker
@@ -78,4 +77,4 @@ class PollingTracker(tracker.TrackerBase):
             self.update_show_if_needed(state, show_tuple)
 
             # Wait for the interval before running check again
-            time.sleep(config['tracker_interval'])
+            self._stop_event.wait(config['tracker_interval'])

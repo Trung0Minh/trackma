@@ -50,7 +50,9 @@ class TrackerBase(object):
         self.msg = messenger.with_classname(self.name)
         self.msg.info('Initializing...')
 
+        self.active = False
         self.list = tracker_list
+        self.title_matcher = utils.TitleMatcher(tracker_list)
         self.config = config
         self.redirections = redirections
         # Reverse sorting for prefix matching
@@ -63,13 +65,30 @@ class TrackerBase(object):
         self.parser_class = get_parser_class(self.msg, self.config['title_parser'])
 
         self.view_offset = None
+        self.last_show_tuple = None
+        self.last_filename = None
+        self.last_state = utils.Tracker.NOVIDEO
+        self.last_time = 0
+        self.last_updated = False
+        self.last_close_queue = None
+        self.signals = {name: None for name in self.signals}
+        self._tracker_args = (config, watch_dirs)
+        self._thread = None
+        self._stop_event = threading.Event()
 
-        tracker_args = (config, watch_dirs)
-        tracker_t = threading.Thread(target=self.observe, args=tracker_args)
-        tracker_t.daemon = True
-
+    def start(self):
+        if self._thread and self._thread.is_alive():
+            return
+        self.active = True
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self.observe,
+            args=self._tracker_args,
+            name=self.name,
+            daemon=True,
+        )
         self.msg.debug('Enabling tracker...')
-        tracker_t.start()
+        self._thread.start()
 
     def set_message_handler(self, message_handler):
         """Changes the message handler function on the fly."""
@@ -78,15 +97,18 @@ class TrackerBase(object):
     def disable(self):
         self.msg.info('Unloading...')
         self.active = False
+        self._stop_event.set()
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join()
 
     def update_list(self, tracker_list):
         self.list = tracker_list
+        self.title_matcher = utils.TitleMatcher(tracker_list)
 
     def connect_signal(self, signal, callback):
-        try:
-            self.signals[signal] = callback
-        except KeyError:
+        if signal not in self.signals:
             raise utils.EngineFatal("Invalid signal.")
+        self.signals[signal] = callback
 
     def observe(self, config, watch_dirs):
         raise NotImplementedError
@@ -264,7 +286,7 @@ class TrackerBase(object):
                 # Format not recognized
                 return (utils.Tracker.UNRECOGNIZED, None)
 
-            playing_show = utils.guess_show(show_title, self.list)
+            playing_show = self.title_matcher.match(show_title)
             self.msg.debug("Show guess: {}: {} - {}".format(show_title, playing_show, show_ep))
 
             if playing_show:

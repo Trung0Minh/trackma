@@ -14,6 +14,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from typing import Optional
+
 from trackma import utils
 
 
@@ -57,7 +59,7 @@ class lib:
 
     """
 
-    default_mediatype = None
+    default_mediatype: Optional[str] = None
 
     # Supported signals for the data handler
     signals = {
@@ -68,6 +70,9 @@ class lib:
     def __init__(self, messenger, account, userconfig):
         """Initializes the API"""
         self.userconfig = userconfig
+        self.api_info = dict(self.api_info)
+        supported_signals = {**lib.signals, **type(self).signals}
+        self.signals = {name: None for name in supported_signals}
         self.msg = messenger.with_classname(self.name)
         self.msg.info('Initializing...')
 
@@ -97,10 +102,9 @@ class lib:
         self.userconfig[key] = value
 
     def connect_signal(self, signal, callback):
-        try:
-            self.signals[signal] = callback
-        except KeyError:
+        if signal not in self.signals:
             raise utils.EngineFatal("Invalid signal.")
+        self.signals[signal] = callback
 
     def check_credentials(self):
         """Checks if credentials are correct; returns True or False."""

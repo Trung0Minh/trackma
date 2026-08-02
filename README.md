@@ -1,205 +1,223 @@
-Trackma
-=======
+# Trackma
 
-Trackma aims to be a lightweight and simple but feature-rich program for Unix based systems
-for fetching, updating and using data from personal lists hosted in several media tracking websites.
+A desktop media-list manager with a modern React interface, native playback
+integration, automatic episode tracking, and direct synchronization with your
+online list.
 
-Features
---------
+This repository is a personal fork of the original
+[Trackma](https://github.com/z411/trackma) project. It keeps Trackma's mature
+Python engine and service integrations while replacing the previous GTK and Qt
+widget interfaces with a single web-based desktop experience.
 
-- Manage local list and synchronize when necessary, useful when offline
-- Manage multiple accounts on different media tracking sites
-- Support for several media types (as supported by the site)
-- Multiple user interfaces (Qt, GTK)
-- Detection of running media player, updates list if necessary
-- Ability to launch media player for a requested media in the list and update list if necessary
-- Highly scalable, easy to code new interfaces and support for other sites
-- Secure, uses HTTPS wherever possible.
+## Preview
 
-Currently supported websites
-----------------------------
+![Trackma library](docs/images/trackma-library.png)
 
-- [Anilist](https://anilist.co/) (Anime, Manga)
-- [Kitsu](https://kitsu.app/) (Anime, Manga, Drama)
-- [MyAnimeList](https://myanimelist.net/) (Anime, Manga)
-- [Shikimori](https://shikimori.one/) (Anime, Manga)
-- [VNDB](https://vndb.org/) (VNs)
+<details>
+<summary>Torrent search and qBittorrent integration</summary>
 
-Screenshots
------------
+![Trackma torrent search](docs/images/trackma-torrent-search.png)
 
-Qt interface
+</details>
 
-![Qt](https://z411.github.io/trackma/images/screen_qt.png)
+## What This Fork Adds
 
-GTK interface
+- A responsive React and TypeScript interface rendered inside a native desktop
+  window.
+- A compact top navigation for Library, Discover, Settings, media selection,
+  connection state, and account management.
+- A library that opens on **Watching** by default, with grid and list layouts,
+  title search, status filters, and sync state at a glance.
+- A single episode-progress bar that distinguishes watched episodes, aired
+  episodes, and files available locally.
+- A title drawer with progress editing, score and status controls, notes, tags,
+  dates, alternate titles, AniList links, Play Next, random playback, local
+  folder access, and torrent search.
+- Nyaa torrent search in a dedicated dialog with subtitle/category filters,
+  release information, pagination, and direct qBittorrent downloads.
+- Remote catalog search and list additions without leaving the application.
+- Safer media matching, account handling, network behavior, runtime isolation,
+  and local-library scanning.
+- Native system tray support, remembered window geometry, notifications, and
+  light, dark, or system theme selection.
 
-![GTK](https://z411.github.io/trackma/images/screen_gtk.png)
+## Supported Services
 
-Dependencies
-------------
+Trackma can manage lists from:
 
-The only required dependencies to run Trackma are:
+- [AniList](https://anilist.co/) — anime and manga
+- [Kitsu](https://kitsu.app/) — anime, manga, and drama
+- [MyAnimeList](https://myanimelist.net/) — anime and manga
+- [Shikimori](https://shikimori.one/) — anime and manga
+- [VNDB](https://vndb.org/) — visual novels
 
-- Python 3.9+
-- For installation: `python3-pip` (to install through `pip`) *or* `python3-poetry` (to install through `poetry`)
+Available features vary according to the capabilities of each service and
+media type.
 
-The following user interfaces are available and their requirements are as follows:
+## How It Works
 
-| UI | Dependencies |
-| --- | --- |
-| Qt | PyQt6 (`python-pyqt6`) |
-| GTK 3 | PyGI (`python3-gi` and `python3-cairo`) |
+Trackma remains a native desktop application. The interface uses web
+technology, but it does not require a browser tab or a separately hosted web
+server in normal use.
 
-The following media recognition trackers are available and their requirements are as follows:
+```text
+React + TypeScript interface
+          |
+       QWebChannel
+          |
+Python desktop bridge + Qt WebEngine window
+          |
+Trackma engine, trackers, local library, and service APIs
+```
 
-| Tracker | Description | Dependencies |
+- `trackma/ui/web/frontend/` contains the React application.
+- `trackma/ui/web/assets/` contains the production frontend bundle loaded by
+  the desktop application.
+- `trackma/ui/web/` provides the PyQt6 WebEngine window and the typed bridge
+  between JavaScript and Python.
+- `trackma/engine.py` and `trackma/data.py` coordinate local state, remote list
+  synchronization, playback, and media tracking.
+- `trackma/lib/` contains service, Nyaa, and qBittorrent integrations.
+- `trackma/tracker/` contains player-detection backends.
+
+## Requirements
+
+- Python 3.9 or newer
+- PyQt6 and PyQt6-WebEngine
+- A supported media player such as mpv
+- Node.js 24 when rebuilding or developing the frontend
+- qBittorrent with its Web UI enabled for direct torrent downloads (optional)
+
+Some tracker backends have additional platform-specific dependencies:
+
+| Tracker | Purpose | Dependency |
 | --- | --- | --- |
-| inotify | Instant, but only supported in Linux. Uses it whenever possible. | `inotify` *or* `pyinotify` |
-| Polling | Slow, but supported in every POSIX platform. Fallback. | `lsof` |
-| Plex | Connects to Plex server. Enabled manually. | None |
-| Kodi | Connects to Kodi server. Enabled manually. | None |
-| Jellyfin | Connects to Jellyfin server. Enabled manually. | None |
-| MPRIS | Connects to running MPRIS capable media players. | `python3-jeepney` |
-| Win32 | Recognition for Windows platforms. | None |
+| inotify | Immediate filesystem/player detection on Linux | `inotify` or `pyinotify` |
+| Polling | Portable fallback detection | `lsof` on POSIX systems |
+| MPRIS | Linux desktop media-player detection | `jeepney` |
+| Plex | Plex session detection | None |
+| Kodi | Kodi session detection | None |
+| Jellyfin | Jellyfin session detection | None |
+| Win32 | Windows media detection | None |
 
-Additional optional Python dependencies:
+## Install From This Fork
 
-- PIL (`python3-pil`) - for showing preview images in the Qt/GTK interfaces.
-- pypresence (???) - for announcing activity on Discord.
-- twitter (`python3-twitter`) - for announcing activity on Twitter.
-- anitopy (-) - for the anitopy title parser
-
-Installation
-------------
-
-Trackma has user-provided packages for several distributions.
-
-- **Arch Linux:** <https://aur.archlinux.org/packages/trackma>, <http://aur.archlinux.org/packages/trackma-git>
-- **Fedora:** <https://copr.fedoraproject.org/coprs/dyskette/trackma/>
-- **Gentoo Linux:** <http://gpo.zugaina.org/net-misc/trackma>
-- **NixOS:** <https://github.com/NixOS/nixpkgs/blob/master/pkgs/tools/misc/trackma/default.nix>
-- **Void Linux:** <https://github.com/void-linux/void-packages/blob/master/srcpkgs/trackma/template>
-
-A user from the community also is providing a Docker image:
-
-- **Docker:** <https://hub.docker.com/r/frosty5689/trackma/>
-
-### Manual installation
-
-Make sure you've installed the proper dependencies (listed above)
-according to the user interface you plan to use, and then run the
-following command:
+Install the current branch directly from GitHub:
 
 ```sh
-$ pip3 install Trackma
+python -m pip install \
+  'trackma[ui] @ git+https://github.com/Trung0Minh/trackma.git@modern-ui-redesign'
 ```
 
-You can also install the git (probably unstable, but newer) version like this:
+Add the optional tracker dependencies when needed:
 
 ```sh
-$ pip3 install -U git+https://github.com/z411/trackma.git
+python -m pip install \
+  'trackma[ui,trackers] @ git+https://github.com/Trung0Minh/trackma.git@modern-ui-redesign'
 ```
 
-Or download the source code and install:
+Then launch Trackma:
 
 ```sh
-$ git clone --recursive https://github.com/z411/trackma.git
-$ cd trackma
-$ poetry build
-$ pip3 install dist/trackma-0.8.5-py3-none-any.whl
+trackma
 ```
 
-### Extras (User Interfaces)
+The `trackma-qt` command remains an alias for the same web-based desktop
+application.
 
-User interfaces require additional dependencies to function.
-You may specify these as "extras" to be installed by the Python package manager.
-
-The following extras are available:
-
-| Extra | Description |
-| --- | --- |
-| `gtk` | The GTK interface. |
-| `qt` | The Qt interface. |
-| `ui` | All user interfaces. |
-| `trackers` | All tracker libraries. |
-| `discord_rpc` | Set your watching activity in Discord. |
-| `twitter` | Announce your watching activity on Twitter. |
-
-If you want to install any of the extras be sure to specify them during installation:
-
-#### pip
+## Build From Source
 
 ```sh
-# With pip
-$ pip3 install Trackma[gtk,trackers]
-$ pip3 install Trackma[ui,twitter,discord_rpc]
+git clone --branch modern-ui-redesign \
+  https://github.com/Trung0Minh/trackma.git
+cd trackma
+
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+
+cd trackma/ui/web/frontend
+npm ci
+npm run build
+cd ../../../..
+
+python -m pip install -e '.[ui,trackers]'
+trackma
 ```
 
-Note that pip does not have a way to install all available extras,
-so you'll have to provide them all manually if desired.
+The frontend build writes directly to `trackma/ui/web/assets`, so the packaged
+desktop application can load it without a development server.
 
-Then you can run the program with the interface you like.
+## Frontend Development
+
+Install dependencies and start Vite:
 
 ```sh
-$ trackma-gtk
-$ trackma-qt
+cd trackma/ui/web/frontend
+npm ci
+npm run dev
 ```
 
-#### poetry
-
-When using poetry on the cloned repository (see above),
-you can install your desired extras as follows:
+In another terminal, launch the native shell against Vite:
 
 ```sh
-$ poetry install -E gtk -E trackers
-$ poetry install -E ui -E twitter -E discord_rpc
-$ poetry install --all-extras
+trackma --dev-url http://127.0.0.1:5173
 ```
 
-Then you can run the interface you like in your virtual environment managed by poetry:
+The standalone browser mock is available at:
+
+```text
+http://127.0.0.1:5173/?mock=1
+```
+
+## Quality Checks
+
+Python:
 
 ```sh
-$ poetry run trackma-gtk
-$ poetry run trackma-qt
+ruff check trackma hooks tests
+mypy trackma
+python -m compileall -q trackma hooks tests
+python -m pytest -q
 ```
 
-Configuration
--------------
-
-A configuration file will be created in `~/.config/trackma/config.json`, make sure to fill in the directory
-where you store your video files and other settings. Details about what each option does can be done here:
-
-<https://github.com/z411/trackma/wiki/Configuration-File>
-
-Alternatively, the GTK and Qt interfaces provide a visual Settings panel.
-
-Development
------------
-
-The code is hosted as a git repository on [GitHub](https://github.com/z411/trackma).
-
-Clone the repo and create the virtual environment using `poetry`:
+Frontend:
 
 ```sh
-$ git clone --recursive https://github.com/z411/trackma.git
-$ cd trackma
-$ poetry install --all-extras
-$ poetry shell
+cd trackma/ui/web/frontend
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run test:e2e
 ```
 
-Use the above commands from the [poetry](#poetry) section
-for how to run your desired interface.
+GitHub Actions runs the frontend suite, Python checks across supported Python
+versions, and a package build on every push and pull request.
 
-If you encounter any problems or have anything to suggest, please don't
-hesitate to submit an issue in the GitHub [issue tracker](https://github.com/z411/trackma/issues).
+## Configuration
 
-License
--------
+Trackma stores user configuration below the platform-specific configuration
+directory, normally `~/.config/trackma/` on Linux. The web desktop window keeps
+its UI settings in `ui-web.json`; accounts and engine settings remain compatible
+with Trackma's existing data model.
 
-Trackma is licensed under the GPLv3 license, please see [LICENSE](../COPYING) for details.
+Configure these features from the Settings screen:
 
-Authors
--------
+- media player and library directories
+- automatic scanning and playback tracking
+- synchronization behavior
+- status and date automation
+- qBittorrent connection details
+- default Nyaa category and filtering
+- tray behavior, notifications, window geometry, theme, and view mode
 
-Trackma was originally written by z411 <z411@omaera.org>. For other contributors see AUTHORS file. GTK icon designed by shuuichi.
+## Credits And License
+
+This fork is built on the original Trackma project by
+[z411](https://github.com/z411) and its contributors. The Python engine,
+service integrations, and core architecture come from that project; this fork
+focuses on a redesigned desktop experience and related integration work.
+
+Trackma is free software licensed under the GNU General Public License v3 or
+later. See [COPYING](COPYING) for the complete license text.

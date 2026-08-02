@@ -1,0 +1,71 @@
+name: Quality
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: trackma/ui/web/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: trackma/ui/web/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:e2e
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install project and test dependencies
+        run: python -m pip install -e '.[qt]' pytest pytest-qt ruff mypy
+      - name: Lint Python sources
+        run: ruff check trackma hooks tests
+      - name: Type-check Python sources
+        run: mypy trackma
+      - name: Compile Python sources
+        run: python -m compileall -q trackma hooks tests
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: trackma/ui/web/frontend/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: npm ci
+        working-directory: trackma/ui/web/frontend
+      - run: npm run build
+        working-directory: trackma/ui/web/frontend
+      - run: python -m pip install build
+      - run: python -m build

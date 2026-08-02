@@ -16,7 +16,6 @@
 
 import ctypes
 import re
-import time
 
 from trackma.tracker import tracker
 
@@ -83,4 +82,4 @@ class Win32Tracker(tracker.TrackerBase):
             self.update_show_if_needed(state, show_tuple)
 
             # Wait for the interval before running check again
-            time.sleep(1)
+            self._stop_event.wait(1)

@@ -1,11 +1,33 @@
-*.pyc
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local environments and build artifacts
+.venv/
+*.egg-info/
+/build/
+/dist/
+
+# Editor and operating-system files
 *~
-*.lock
-*.DS_store
 *.swp
+.DS_Store
+/.vscode/
+
+# Runtime and diagnostic output
+.trackma/
 *.out
 *.log
-.trackma
-*.egg-info
-build
-dist
+
+# Local analysis/reference material
+/.codegraph/
+/.superpowers/
+/taiga/
+/app_screenshot.png
+/capture_ui.py
+/repro_bug.py

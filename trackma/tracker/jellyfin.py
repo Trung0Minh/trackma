@@ -16,10 +16,10 @@
 # TODO: Add gui stuff for this
 
 import os
-import time
 import urllib.request
 import json
 
+from trackma import utils
 from trackma.tracker import tracker
 
 NOT_RUNNING = 0
@@ -83,7 +83,7 @@ class JellyfinTracker(tracker.TrackerBase):
             del self.status_log[0]
 
             # Wait for the interval before running check again
-            time.sleep(config['tracker_interval'])
+            self._stop_event.wait(config['tracker_interval'])
 
     def _get_sessions_info(self):
         session_url = self.host_port+"/Sessions"
@@ -100,8 +100,12 @@ class JellyfinTracker(tracker.TrackerBase):
         req.add_header("Authorization", auth_header)
         req.add_header("Accept", "application/json")
 
-        with urllib.request.urlopen(req) as response:
-            response_json = json.load(response)
+        try:
+            with urllib.request.urlopen(req, timeout=3) as response:
+                response_json = json.loads(
+                    utils.read_response_limited(response).decode('utf-8'))
+        except (urllib.error.URLError, ValueError, json.JSONDecodeError):
+            return info
 
         for session in response_json:
             if 'UserName' not in session:

@@ -182,8 +182,8 @@ class libanilist(lib):
             ))
 
         try:
-            response = self.opener.open(request, timeout=10)
-            return json.loads(response.read().decode('utf-8'))
+            response = self.opener.open(request, timeout=20)
+            return json.loads(utils.read_response_limited(response).decode('utf-8'))
         except urllib.error.HTTPError as e:
             if e.code == 400:
                 raise utils.APIError("Invalid HTTP request: %s" % e.read())
@@ -193,6 +193,8 @@ class libanilist(lib):
             raise utils.APIError("HTTP connection error: %s" % e.reason)
         except socket.timeout:
             raise utils.APIError("Connection timed out.")
+        except ValueError as e:
+            raise utils.APIError(str(e))
 
     def _request(self, query, variables=None):
         if variables:

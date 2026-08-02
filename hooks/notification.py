@@ -8,9 +8,16 @@
 #
 # To use, copy this file to ~/.trackma/hooks/
 
-import os
+import subprocess
+
+from trackma import utils
 
 
 def episode_changed(engine, show):
-    os.system('notify-send --icon=/usr/lib/python3.5/site-packages/trackma/data/mal.jpg --app-name=trackma "Updated '+show['title']+'" "Progress: '+str(show['my_progress'])+'/'+str(show['total'])+'"')
-
+    subprocess.run([
+        'notify-send',
+        '--icon={}'.format(utils.DATADIR + '/mal.jpg'),
+        '--app-name=trackma',
+        'Updated {}'.format(show['title']),
+        'Progress: {}/{}'.format(show['my_progress'], show['total']),
+    ], check=False)

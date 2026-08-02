@@ -16,10 +16,10 @@
 
 import base64
 import json
-import time
 import urllib.error
 import urllib.request
 
+from trackma import utils
 from trackma.tracker import tracker
 
 NOT_RUNNING = 0
@@ -91,12 +91,12 @@ class KodiTracker(tracker.TrackerBase):
 
         return round(seconds*0.80)
 
-    def _get_rpc_info(self, method, params={}):
+    def _get_rpc_info(self, method, params=None):
         url = "http://{}/jsonrpc".format(self.host_port)
 
         body = {
             "method": method,
-            "params": params,
+            "params": params or {},
             "jsonrpc": "2.0",
             "id": 0
         }
@@ -112,8 +112,8 @@ class KodiTracker(tracker.TrackerBase):
             req = urllib.request.Request(url, json.dumps(
                 body).encode(), headers=self.headers)
 
-        response = urllib.request.urlopen(req)
-        data = json.loads(response.read().decode())
+        response = urllib.request.urlopen(req, timeout=3)
+        data = json.loads(utils.read_response_limited(response).decode())
 
         return data['result']
 
@@ -161,4 +161,4 @@ class KodiTracker(tracker.TrackerBase):
             del self.status_log[0]
 
             # Wait for the interval before running check again
-            time.sleep(config['tracker_interval'])
+            self._stop_event.wait(config['tracker_interval'])

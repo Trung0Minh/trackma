@@ -36,9 +36,8 @@ def episode_changed(engine, show):
         'total': show['total'],
     }).encode('utf-8')
     req = urllib.request.Request(MONTHLY_URL, data, HEADERS)
-    response = urllib.request.urlopen(req)
-    json_data = json.loads(response.read().decode('utf-8'))
+    response = urllib.request.urlopen(req, timeout=20)
+    json_data = json.loads(utils.read_response_limited(response).decode('utf-8'))
 
     if not json_data['success']:
         engine.msg.warn('Monthly.moe', "Problem updating episode.")
-

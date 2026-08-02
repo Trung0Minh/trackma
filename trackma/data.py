@@ -62,10 +62,27 @@ class Data:
         """Checks if the config is correct and creates an API object."""
         self.msg = messenger.with_classname(self.name)
         self.config = config
+        self.api = None
+        self.showlist = None
+        self.infocache = {}
+        self.queue = []
+        self.meta = {
+            'lastget': 0,
+            'lastsend': 0,
+            'version': '',
+            'apiversion': '',
+            'altnames': {},
+            'library': {},
+            'library_cache': {},
+        }
+        self.autosend_timer = None
+        self.autoretrieve_timer = None
+        self.signals = {name: None for name in self.signals}
         self.msg.info("Initializing...")
 
         # Get filenames
-        userfolder = "%s.%s" % (account['username'], account['api'])
+        userfolder = utils.account_data_dirname(
+            account['username'], account['api'])
         self.userconfig_file = utils.to_data_path(userfolder, 'user.json')
 
         # Handle userconfig and media type to load
@@ -102,6 +119,7 @@ class Data:
         self.cache_file = utils.to_data_path(userfolder, '%s.list' % mediatype)
         self.meta_file = utils.to_data_path(userfolder, '%s.meta' % mediatype)
         self.lock_file = utils.to_data_path(userfolder,  'lock')
+        self._lock_acquired = False
 
         # Connect signals
         self.api.connect_signal('show_info_changed', self.info_update)
@@ -120,10 +138,9 @@ class Data:
                 (self.config['autosend'] == 'size' and len(self.queue) >= self.config['autosend_size']))
 
     def connect_signal(self, signal, callback):
-        try:
-            self.signals[signal] = callback
-        except KeyError:
+        if signal not in self.signals:
             raise utils.DataFatal("Invalid signal.")
+        self.signals[signal] = callback
 
     def set_message_handler(self, message_handler):
         self.msg = message_handler.with_classname(self.name)
@@ -171,7 +188,7 @@ class Data:
                     # We don't want users losing their changes
                     self.process_queue()
                     self.download_data()
-                except utils.APIError as e:
+                except utils.APIError:
                     self.msg.warn("Couldn't download list! Using cache.")
                     self._load_cache()
             elif not self.showlist:
@@ -361,7 +378,11 @@ class Data:
         """Clears the queue completely."""
         if self.queue:
             self.queue = []
+            if self.showlist:
+                for show in self.showlist.values():
+                    show['queued'] = False
             self._save_queue()
+            self._save_cache()
             self._emit_signal('queue_changed', self.queue)
             self.msg.info("Cleared queue.")
 
@@ -389,12 +410,9 @@ class Data:
 
             # Run through queue
             items_processed = []
-            items_failed = []
-            while True:
-                try:
-                    item = self.queue.pop(0)
-                except IndexError:
-                    break
+            original_queue = list(self.queue)
+            failed_items = []
+            for index, item in enumerate(original_queue):
 
                 showid = item['id']
 
@@ -403,6 +421,7 @@ class Data:
                 except KeyError:
                     show = None
 
+                succeeded = False
                 try:
                     # Call the API to do the requested operation
                     operation = item.get('action')
@@ -419,30 +438,38 @@ class Data:
                     elif operation == 'delete':
                         self.api.delete_show(item)
                     else:
-                        self.msg.warn("Unknown operation in queue (%s), skipping..." % repr(operation))
+                        self.msg.warn("Unknown operation in queue (%s); keeping it queued." % repr(operation))
+                        failed_items.append(item)
+                        continue
 
                     if self.showlist.get(showid):
                         self.showlist[showid]['queued'] = False
                         self._emit_signal('show_synced', show, item)
 
                     items_processed.append((show, item))
-                    self._emit_signal('queue_changed', self.queue)
+                    succeeded = True
                 except utils.APIError as e:
                     self.msg.warn("Can't process %s, will leave unsynced." % item['title'])
                     self.msg.debug("Info: %s" % e)
-                    items_failed.append(item)
+                    failed_items.append(item)
                 except NotImplementedError:
-                    self.msg.warn("Operation not implemented in API. Skipping...")
-                    items_failed.append(item)
-                # except TypeError:
-                #    self.msg.warn("%s not in list, unexpected. Not changing queued status." % showid)
+                    self.msg.warn("Operation not implemented in API; keeping it queued.")
+                    failed_items.append(item)
+                except Exception:
+                    failed_items.append(item)
+                    raise
+                finally:
+                    self.queue = failed_items + original_queue[index + 1:]
+                    self._save_queue()
+                    if succeeded:
+                        self._save_cache()
+                    self._emit_signal('queue_changed', self.queue)
 
-            if items_failed:
-                self.queue += items_failed
-
-            self.api.logout()
-            self._save_cache()
-            self._save_queue()
+            try:
+                self.api.logout()
+            finally:
+                self._save_cache()
+                self._save_queue()
             self._emit_signal('sync_complete', items_processed)
         else:
             self.msg.debug('No items in queue.')
@@ -634,20 +661,27 @@ class Data:
         if self.config['debug_disable_lock']:
             return
 
-        if os.path.isfile(self.lock_file):
-            raise utils.DataFatal("Database is locked by another process. "
-                                  "If you\'re sure there's no other process is using it, "
-                                  "remove the file ~/.trackma/lock")
-
-        f = open(self.lock_file, 'w')
-        f.close()
+        try:
+            fd = os.open(self.lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            raise utils.DataFatal(
+                "Database is locked by another process. If you're sure no other "
+                "process is using it, remove {}".format(self.lock_file))
+        with os.fdopen(fd, 'w') as lockfile:
+            lockfile.write(str(os.getpid()))
+        self._lock_acquired = True
 
     def _unlock(self):
         """Removes the database lock"""
         if self.config['debug_disable_lock']:
             return
 
-        os.unlink(self.lock_file)
+        if self._lock_acquired:
+            try:
+                os.unlink(self.lock_file)
+            except FileNotFoundError:
+                pass
+            self._lock_acquired = False
 
     def get_api_info(self):
         return (self.api.api_info, self.api.media_info())

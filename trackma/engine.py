@@ -21,9 +21,9 @@ import re
 import shlex
 import shutil
 import sys
+import threading
 import time
 from decimal import Decimal
-from functools import lru_cache, partial
 from pathlib import Path
 
 from trackma import data
@@ -82,6 +82,17 @@ class Engine:
 
     def __init__(self, account=None, message_handler=None, accountnum=None):
         self.msg = messenger.Messenger(message_handler, self.name)
+        self.data_handler = None
+        self.tracker = None
+        self.redirections = None
+        self.config = {}
+        self.loaded = False
+        self.playing = False
+        self.hooks_available = []
+        self.signals = {name: None for name in self.signals}
+        self.autoscan_interval = 0
+        self.autoscan_thread = None
+        self._autoscan_stop = threading.Event()
 
         # Utility parameter to get the account from the account manager
         if accountnum:
@@ -100,7 +111,8 @@ class Engine:
         self.configfile = utils.to_config_path('config.json')
 
         # Create user directory
-        userfolder = "%s.%s" % (account['username'], account['api'])
+        userfolder = utils.account_data_dirname(
+            account['username'], account['api'])
         utils.make_dir(utils.to_data_path(userfolder))
 
         self.msg.info('Trackma v{0} - using account {1}({2}).'.format(
@@ -171,12 +183,10 @@ class Engine:
         self._emit_signal('tracker_state', status)
 
     def _emit_signal(self, signal, *args):
-        try:
-            # Call the signal function
-            if self.signals[signal]:
-                self.signals[signal](*args)
-        except AttributeError:
-            pass
+        if signal not in self.signals:
+            raise utils.EngineFatal("Invalid signal.")
+        if self.signals[signal]:
+            self.signals[signal](*args)
 
         # If there are loaded hooks, call the functions in all of them
         for module in self.hooks_available:
@@ -225,16 +235,41 @@ class Engine:
         # If the engine wasn't closed for whatever reason, do it
         if self.loaded:
             self.msg.info("Forcing exit...")
-            self.data_handler.unload(True)
+            self.loaded = False
+            self._stop_autoscan()
             if self.tracker:
                 self.tracker.disable()
-            self.loaded = False
+                self.tracker = None
+            self.data_handler.unload(True)
 
     def connect_signal(self, signal, callback):
-        try:
-            self.signals[signal] = callback
-        except KeyError:
+        if signal not in self.signals:
             raise utils.EngineFatal("Invalid signal.")
+        self.signals[signal] = callback
+
+    def _start_tracker(self):
+        TrackerClass = self._get_tracker_class(self.config['tracker_type'])
+        tracker = TrackerClass(
+            self.msg,
+            self._get_tracker_list(),
+            self.config,
+            self.searchdirs,
+            self.redirections,
+        )
+        tracker.connect_signal('detected', self._tracker_detected)
+        tracker.connect_signal('removed', self._tracker_removed)
+        tracker.connect_signal('playing', self._tracker_playing)
+        tracker.connect_signal('update', self._tracker_update)
+        tracker.connect_signal('unrecognised', self._tracker_unrecognised)
+        tracker.connect_signal('state', self._tracker_state)
+        tracker.start()
+        self.tracker = tracker
+
+    def _stop_autoscan(self):
+        self._autoscan_stop.set()
+        if self.autoscan_thread and self.autoscan_thread is not threading.current_thread():
+            self.autoscan_thread.join()
+        self.autoscan_thread = None
 
     def set_message_handler(self, message_handler):
         """Changes the message handler function on the fly."""
@@ -343,42 +378,30 @@ class Engine:
         if self.mediainfo.get('can_play') and self.config['tracker_enabled']:
             self.msg.debug("Initializing tracker...")
             try:
-                TrackerClass = self._get_tracker_class(
-                    self.config['tracker_type'])
-
-                self.tracker = TrackerClass(self.msg,
-                                            self._get_tracker_list(),
-                                            self.config,
-                                            self.searchdirs,
-                                            self.redirections,
-                                            )
-                self.tracker.connect_signal('detected', self._tracker_detected)
-                self.tracker.connect_signal('removed', self._tracker_removed)
-                self.tracker.connect_signal('playing', self._tracker_playing)
-                self.tracker.connect_signal('update', self._tracker_update)
-                self.tracker.connect_signal(
-                    'unrecognised', self._tracker_unrecognised)
-                self.tracker.connect_signal('state', self._tracker_state)
+                self._start_tracker()
             except ImportError:
                 self.msg.warn("Couldn't import specified tracker: {}".format(
                     self.config['tracker_type']))
                 self.msg.exception(sys.exc_info())
 
         # Start periodic library scan if configured
+        self.loaded = True
         self.autoscan_interval = self.config.get('library_autoscan_interval', 0)
         if self.autoscan_interval > 0:
             self.msg.info(f"Starting auto-scan library every {self.autoscan_interval} seconds.")
-            self.autoscan_thread = utils.Thread(target=self._autoscan_loop)
+            self._autoscan_stop.clear()
+            self.autoscan_thread = threading.Thread(
+                target=self._autoscan_loop,
+                name='Trackma library autoscan',
+                daemon=True,
+            )
             self.autoscan_thread.start()
 
-        self.loaded = True
         self.msg.debug("Engine started")
         return True
 
     def _autoscan_loop(self):
-        while self.loaded:
-            time.sleep(self.autoscan_interval)
-            if not self.loaded: break
+        while not self._autoscan_stop.wait(self.autoscan_interval):
             try:
                 self.scan_library()
             except Exception as e:
@@ -394,9 +417,12 @@ class Engine:
         """
         if self.loaded:
             self.msg.info("Unloading...")
-            self.data_handler.unload()
+            self.loaded = False
+            self._stop_autoscan()
             if self.tracker:
                 self.tracker.disable()
+                self.tracker = None
+            self.data_handler.unload()
 
             # If there are loaded hooks, unload them
             self.msg.info("Unloading user hooks...")
@@ -411,7 +437,6 @@ class Engine:
                     self.msg.warn("Error destroying hook {}: {}".format(
                         module.__name__, err))
 
-            self.loaded = False
 
     def reload(self, account=None, mediatype=None):
         """Changes the API and/or mediatype and reloads itself."""
@@ -470,19 +495,7 @@ class Engine:
             if self.config['tracker_enabled'] and not self.tracker:
                 self.msg.info("Enabling tracker...")
                 try:
-                    TrackerClass = self._get_tracker_class(self.config['tracker_type'])
-                    self.tracker = TrackerClass(self.msg,
-                                                self._get_tracker_list(),
-                                                self.config,
-                                                self.searchdirs,
-                                                self.redirections)
-                    # Connect signals (omitted for brevity, ideally would reuse logic from start())
-                    self.tracker.connect_signal('detected', self._tracker_detected)
-                    self.tracker.connect_signal('removed', self._tracker_removed)
-                    self.tracker.connect_signal('playing', self._tracker_playing)
-                    self.tracker.connect_signal('update', self._tracker_update)
-                    self.tracker.connect_signal('unrecognised', self._tracker_unrecognised)
-                    self.tracker.connect_signal('state', self._tracker_state)
+                    self._start_tracker()
                 except Exception as e:
                     self.msg.warn(f"Failed to enable tracker: {e}")
             elif not self.config['tracker_enabled'] and self.tracker:
@@ -908,7 +921,7 @@ class Engine:
             self.msg.info("Scanning local library...")
 
         tracker_list = self._get_tracker_list(my_status)
-        guess_show = lru_cache(partial(utils.guess_show, tracker_list=tracker_list))
+        title_matcher = utils.TitleMatcher(tracker_list)
 
         paths = [path] if path else self.searchdirs
         for searchdir in paths:
@@ -919,7 +932,8 @@ class Engine:
                 if self.config['library_full_path']:
                     filename = self._get_relative_path_or_basename(searchdir, fullpath)
                 (library, library_cache) = self._add_show_to_library(
-                    library, library_cache, rescan, fullpath, filename, tracker_list, guess_show)
+                    library, library_cache, rescan, fullpath, filename,
+                    tracker_list, title_matcher.match)
 
             self.msg.debug("Time: %s" % (time.time() - t))
             self.data_handler.library_save(library)
@@ -931,7 +945,6 @@ class Engine:
     def remove_from_library(self, path, filename):
         library = self.data_handler.library_get()
         library_cache = self.data_handler.library_cache_get()
-        tracker_list = self._get_tracker_list()
         fullpath = path+"/"+filename
         # Only remove if the filename matches library entry
         if filename in library_cache and library_cache[filename]:
@@ -952,9 +965,10 @@ class Engine:
         library_cache = self.data_handler.library_cache_get()
         tracker_list = self._get_tracker_list()
         fullpath = path+"/"+filename
-        guess_show = partial(utils.guess_show, tracker_list=tracker_list)
+        title_matcher = utils.TitleMatcher(tracker_list)
         self._add_show_to_library(
-            library, library_cache, rescan, fullpath, filename, tracker_list, guess_show)
+            library, library_cache, rescan, fullpath, filename,
+            tracker_list, title_matcher.match)
         self.data_handler.library_save(library)
         self.data_handler.library_cache_save(library_cache)
         self._emit_signal('library_updated')
@@ -1177,7 +1191,8 @@ class Engine:
                               filter=self.config.get('nyaa_filter', '0'),
                               page=page)
 
-    def search_torrents_manual(self, query, category="1_0", page=1):
+    def search_torrents_manual(self, query, category="1_0", page=1,
+                               include_page_info=False):
         """
         Search for torrents on Nyaa.si with a manually specified category.
         """
@@ -1185,7 +1200,8 @@ class Engine:
         return searcher.search(query, 
                               category=category,
                               filter=self.config.get('nyaa_filter', '0'),
-                              page=page)
+                              page=page,
+                              include_page_info=include_page_info)
 
     def get_torrent_description(self, url):
         """

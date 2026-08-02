@@ -166,13 +166,15 @@ class libshikimori(lib):
             ))
 
         try:
-            response = self.opener.open(request)
+            response = self.opener.open(request, timeout=20)
 
-            return json.loads(response.read().decode('utf-8'))
+            return json.loads(utils.read_response_limited(response).decode('utf-8'))
         except urllib.error.URLError as e:
             raise utils.APIError("URL error: %s" % e)
         except socket.timeout:
             raise utils.APIError("Operation timed out.")
+        except ValueError as e:
+            raise utils.APIError(str(e))
 
     def _request_access_token(self, refresh=False):
         """
@@ -279,7 +281,7 @@ class libshikimori(lib):
         self.check_credentials()
         self.msg.info("Deleting item %s..." % item['title'])
 
-        data = self._request(
+        self._request(
             "DELETE", self.api_url + "/user_rates/{}".format(item['my_id']), auth=True)
 
     def search(self, criteria, method):

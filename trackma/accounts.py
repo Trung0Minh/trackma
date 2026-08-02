@@ -13,26 +13,26 @@ class AccountManager:
     This class returns an Account Dictionary used by
     the :class:`Engine` to start.
     """
-    accounts = {'default': None, 'next': 1, 'accounts': dict()}
+    accounts: dict = {'default': None, 'next': 1, 'accounts': dict()}
 
     def __init__(self):
+        self.accounts = {'default': None, 'next': 1, 'accounts': {}}
         utils.make_dir(utils.to_config_path())
         self.filename = utils.to_config_path('accounts.dict')
         self._load()
 
     def _load(self):
         if utils.file_exists(self.filename):
-            with open(self.filename, 'rb') as f:
-                self.accounts = pickle.load(f)
+            with open(self.filename, 'rb') as accounts_file:
+                self.accounts = pickle.load(accounts_file)
 
     def _save(self):
-        is_new = not utils.file_exists(self.filename)
-        with open(self.filename, 'wb') as f:
-            if is_new:
-                utils.change_permissions(self.filename, 0o600)
-            pickle.dump(self.accounts, f, protocol=2)
+        utils.atomic_write(
+            self.filename,
+            pickle.dumps(self.accounts, protocol=2),
+        )
 
-    def add_account(self, username, password, api, extra={}):
+    def add_account(self, username, password, api, extra=None):
         """
         Registers a new account with the specified
         *username*, *password*, and *api*.
@@ -53,7 +53,7 @@ class AccountManager:
         account = {'username': username,
                    'password': password,
                    'api': api,
-                   'extra': extra,
+                   'extra': dict(extra or {}),
                    }
 
         nextnum = self.accounts['next']
@@ -61,7 +61,7 @@ class AccountManager:
         self.accounts['next'] += 1
         self._save()
 
-    def edit_account(self, num, username, password, api, extra={}):
+    def edit_account(self, num, username, password, api, extra=None):
         """
         Updates data for account *num* with the specified
         *username*, *password*, and *api*.
@@ -79,7 +79,7 @@ class AccountManager:
         account = {'username': username,
                    'password': password,
                    'api': api,
-                   'extra': extra,
+                   'extra': dict(extra or {}),
                    }
 
         self.accounts['accounts'][num].update(account)
@@ -103,8 +103,8 @@ class AccountManager:
         Renames stale cache files for account number **num**.
         """
         account = self.accounts['accounts'][num]
-        userfolder = utils.to_data_path(
-            "%s.%s" % (account['username'], account['api']))
+        userfolder = utils.to_data_path(utils.account_data_dirname(
+            account['username'], account['api']))
         utils.make_dir(userfolder + '.old')
         utils.regex_rename_files(
             '(.*.queue)|(.*.info)|(.*.list)|(.*.meta)', userfolder, userfolder + '.old')

@@ -24,7 +24,7 @@ class QBitClient:
         retries = 3 if auto_launch else 1
         for attempt in range(retries):
             try:
-                response = self.session.post(url, data=data, timeout=2)
+                response = self.session.post(url, data=data, timeout=3)
                 if response.status_code == 200 and response.text == "Ok.":
                     if self.msg:
                         self.msg.debug("qBittorrent: Login successful")
@@ -66,7 +66,7 @@ class QBitClient:
             data['savepath'] = save_path
 
         try:
-            response = self.session.post(url, data=data)
+            response = self.session.post(url, data=data, timeout=3)
             if response.status_code == 200:
                 if self.msg:
                     self.msg.info("qBittorrent: Magnet link added successfully")

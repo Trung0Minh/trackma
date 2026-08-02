@@ -1,4 +1,5 @@
 from trackma import utils
+from trackma import title_matching
 
 
 def _show(show_id, titles, my_status=1):
@@ -53,3 +54,39 @@ def test_guess_show_matches_short_filename_title_inside_long_alias():
     result = utils.guess_show('Kamiina Botan', _tracker_list(expected))
 
     assert result is expected
+
+
+def test_title_matcher_reuses_preprocessed_aliases(monkeypatch):
+    shows = _tracker_list(*(
+        _show(index, ['Example Show {}'.format(index)])
+        for index in range(100)
+    ))
+    original_normalize = title_matching.normalize_title
+    calls = 0
+
+    def counted_normalize(title):
+        nonlocal calls
+        calls += 1
+        return original_normalize(title)
+
+    monkeypatch.setattr(title_matching, 'normalize_title', counted_normalize)
+    matcher = utils.TitleMatcher(shows)
+    initialization_calls = calls
+
+    for _ in range(10):
+        matcher.match('Unmatched Release Name')
+
+    assert initialization_calls == 100
+    assert calls == initialization_calls + 10
+
+
+def test_title_matcher_matches_compatibility_function():
+    tracker_list = _tracker_list(
+        _show(1, ['Example Show'], my_status=2),
+        _show(2, ['Example Show Season 2'], my_status=1),
+        altnames={'custom title': 2},
+    )
+    matcher = utils.TitleMatcher(tracker_list)
+
+    for title in ('Custom Title', 'Example Show S2', 'No Match At All'):
+        assert matcher.match(title) is utils.guess_show(title, tracker_list)

@@ -16,7 +16,6 @@
 
 import copy
 import datetime
-import difflib
 import json
 import locale
 import os
@@ -25,15 +24,18 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
-import unicodedata
 import uuid
 from enum import Enum, auto
+
+from trackma.title_matching import TitleMatcher, normalize_title as normalize_title
 
 VERSION = '0.10.3'
 
 DATADIR = os.path.dirname(__file__) + '/data'
+MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
 
 class Login(Enum):
@@ -196,7 +198,7 @@ def oauth_generate_pkce() -> str:
 
 
 def parse_config(filename, default):
-    config = copy.copy(default)
+    config = copy.deepcopy(default)
 
     try:
         with open(filename) as configfile:
@@ -220,13 +222,13 @@ def parse_config(filename, default):
 
 
 def save_config(config_dict, filename):
-    path = os.path.dirname(filename)
-    if not os.path.isdir(path):
-        os.mkdir(path)
-
-    with open(filename, 'wb') as configfile:
-        configfile.write(json.dumps(config_dict, sort_keys=True,
-                                    indent=4, separators=(',', ': ')).encode('utf-8'))
+    payload = json.dumps(
+        config_dict,
+        sort_keys=True,
+        indent=4,
+        separators=(',', ': '),
+    ).encode('utf-8')
+    atomic_write(filename, payload)
 
 
 def load_data(filename):
@@ -235,8 +237,52 @@ def load_data(filename):
 
 
 def save_data(data, filename):
-    with open(filename, 'wb') as datafile:
-        pickle.dump(data, datafile, protocol=2)
+    atomic_write(filename, pickle.dumps(data, protocol=2))
+
+
+def read_response_limited(response, limit=MAX_RESPONSE_BYTES):
+    headers = getattr(response, 'headers', None)
+    content_length = headers.get('Content-Length') if headers else None
+    if content_length and int(content_length) > limit:
+        raise ValueError('Response exceeds the {} byte limit.'.format(limit))
+    payload = response.read(limit + 1)
+    if len(payload) > limit:
+        raise ValueError('Response exceeds the {} byte limit.'.format(limit))
+    return payload
+
+
+def atomic_write(filename, payload, mode=0o600):
+    directory = os.path.dirname(filename) or '.'
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix='.trackma-', dir=directory)
+    try:
+        os.fchmod(fd, mode)
+        with os.fdopen(fd, 'wb') as output:
+            output.write(payload)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, filename)
+        os.chmod(filename, mode)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def safe_path_component(value, label='path component'):
+    value = str(value)
+    if not value or value in {'.', '..'} or '\x00' in value or '/' in value or '\\' in value:
+        raise TrackmaFatal('Invalid {}.'.format(label))
+    return value
+
+
+def account_data_dirname(username, api):
+    return '{}.{}'.format(
+        safe_path_component(username, 'account username'),
+        safe_path_component(api, 'account API'),
+    )
 
 
 def log_error(msg):
@@ -324,9 +370,9 @@ def sync_file(fname, sync_url):
     import socket
 
     try:
-        with urllib.request.urlopen(sync_url) as r, open(fname, 'wb') as f:
-            shutil.copyfileobj(r, f)
-    except (socket.timeout, urllib.error.URLError):
+        with urllib.request.urlopen(sync_url, timeout=20) as response:
+            atomic_write(fname, read_response_limited(response))
+    except (socket.timeout, urllib.error.URLError, ValueError):
         return False
 
     return True
@@ -384,173 +430,9 @@ def estimate_aired_episodes(show):
     return 0
 
 
-def normalize_title(title):
-    """
-    Normalize title for better matching.
-    Mirrors Taiga's recognition normalization closely enough for Trackma's
-    filename-to-list matching.
-    """
-    if not title:
-        return ""
-
-    replacements = {
-        '@': 'a',
-        '×': 'x',
-        '꞉': ':',
-        'Ō': 'ou',
-        'ō': 'ou',
-        'ū': 'uu',
-    }
-    for before, after in replacements.items():
-        title = title.replace(before, after)
-
-    title = unicodedata.normalize('NFKC', title)
-    title = ''.join(
-        char for char in title
-        if unicodedata.category(char) not in {'Mn', 'Cc', 'Cf'}
-    ).casefold()
-
-    for before, after in (
-        ('xiii', '13'),
-        ('xii', '12'),
-        ('xi', '11'),
-        ('viii', '8'),
-        ('vii', '7'),
-        ('vi', '6'),
-        ('iii', '3'),
-        ('ii', '2'),
-        ('ix', '9'),
-        ('iv', '4'),
-        ('v', '5'),
-    ):
-        title = re.sub(r'\b{}\b'.format(before), after, title)
-
-    for before, after in (
-        ('first', '1st'),
-        ('second', '2nd'),
-        ('third', '3rd'),
-        ('fourth', '4th'),
-        ('fifth', '5th'),
-        ('sixth', '6th'),
-        ('seventh', '7th'),
-        ('eighth', '8th'),
-        ('ninth', '9th'),
-    ):
-        title = re.sub(r'\b{}\b'.format(before), after, title)
-
-    for number in range(1, 7):
-        ordinal_suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(number, 'th')
-        patterns = (
-            '{}{} season'.format(number, ordinal_suffix),
-            'season {}'.format(number),
-            'series {}'.format(number),
-            's{}'.format(number),
-        )
-        for pattern in patterns:
-            title = re.sub(r'\b{}\b'.format(pattern), str(number), title)
-
-    title = title.replace('&', ' and ')
-
-    for before, after in (
-        ('the animation', ''),
-        ('the', ''),
-        ('episode', ''),
-        ('oad', 'ova'),
-        ('oav', 'ova'),
-        ('specials', 'sp'),
-        ('special', 'sp'),
-        ('tv', ''),
-    ):
-        title = re.sub(r'\b{}\b'.format(re.escape(before)), after, title)
-
-    title = re.sub(r'\s+', ' ', title).strip()
-    title = ''.join(
-        char for char in title
-        if char.isalnum() or char.isspace()
-    )
-    title = re.sub(r'\s+', ' ', title).strip()
-
-    return title
-
 def guess_show(show_title, tracker_list):
-    """ Take a title and search for it fuzzily in the tracker list """
-    (showlist, altnames_map) = tracker_list
-
-    # Return the show immediately if we find an altname for it
-    if altnames_map and show_title.lower() in altnames_map:
-        showid = altnames_map[show_title.lower()]
-
-        if showid in showlist:
-            return showlist[showid]
-
-    # --- Taiga-style Normalization Match ---
-    norm_filename_title = normalize_title(show_title)
-    
-    # Check for exact normalized match first
-    for item in showlist.values():
-        for title in item['titles']:
-            if normalize_title(title) == norm_filename_title:
-                return item
-
-    # Taiga's scorer can still identify shortened release titles against
-    # longer official aliases. Cover that common fansub case before the
-    # general fuzzy fallback, e.g. "Kamiina Botan" inside the full romaji title.
-    if len(norm_filename_title.split()) >= 2:
-        for item in showlist.values():
-            for title in item['titles']:
-                norm_title = normalize_title(title)
-                if (norm_title.startswith(norm_filename_title + ' ') or
-                        norm_title.endswith(' ' + norm_filename_title) or
-                        (' ' + norm_filename_title + ' ') in (' ' + norm_title + ' ')):
-                    return item
-
-    # --- Fuzzy Match Fallback ---
-    # Use difflib to see if the show title is similar to
-    # one we have in the list
-    best_match = None
-    highest_ratio = 0
-    matcher = difflib.SequenceMatcher()
-    matcher.set_seq1(show_title.lower())
-
-    # Compare to every show in our list to see which one
-    # has the most similar name
-    candidates = []
-    for item in showlist.values():
-        # Make sure to search through all the aliases
-        local_highest = 0
-        for title in item['titles']:
-            matcher.set_seq2(title.lower())
-            ratio = matcher.ratio()
-            if ratio > local_highest:
-                local_highest = ratio
-        
-        if local_highest > 0.7:
-            candidates.append((item, local_highest))
-
-    if not candidates:
-        return None
-
-    # Sort candidates by ratio (descending)
-    candidates.sort(key=lambda x: x[1], reverse=True)
-
-    # Filtering logic:
-    # If the top candidate is significantly better, pick it.
-    # If the top few are close (within 0.1), prefer the one that is 'Watching' (status 1) or 'Airing' (status 1 usually)
-    # This fixes S1 (Completed) vs S2 (Watching) ambiguity.
-    
-    top_candidate = candidates[0]
-    best_ratio = top_candidate[1]
-    
-    # Check if we have a "Watching" candidate in the top tier matches
-    watching_candidates = [c for c in candidates if c[1] >= best_ratio - 0.15 and c[0].get('my_status') == 1]
-    
-    if watching_candidates:
-        # If we have valid candidates that are currently being watched, pick the best among them
-        # This effectively overrides a slightly better string match (e.g. "Show" vs "Show S2") 
-        # if "Show" is completed and "Show S2" is watching.
-        return watching_candidates[0][0]
-    
-    return top_candidate[0]
+    """Take a title and search for it fuzzily in the tracker list."""
+    return TitleMatcher(tracker_list).match(show_title)
 
 
 def redirect_show(show_tuple, redirections, tracker_list):
@@ -730,7 +612,7 @@ config_defaults = {
     'library_autoscan': True,
     'library_full_path': False,
     'scan_whole_list': False,
-    'debug_disable_lock': True,
+    'debug_disable_lock': False,
     'auto_status_change': True,
     'auto_status_change_if_scored': True,
     'auto_date_change': True,
@@ -770,84 +652,6 @@ userconfig_defaults = {
     'username': '',
 }
 
-curses_defaults = {
-    'show_help': True,
-    'keymap': {
-        'help': '?',
-        'prev_filter': 'left',
-        'next_filter': 'right',
-        'sort': 'f3',
-        'sort_order': 'r',
-        'update': 'u',
-        'play': 'p',
-        'openfolder': 'o',
-        'play_random': '&',
-        'status': 'f6',
-        'score': 'z',
-        'send': 's',
-        'retrieve': 'R',
-        'addsearch': 'a',
-        'reload': 'c',
-        'switch_account': 'f9',
-        'delete': 'd',
-        'quit': 'q',
-        'altname': 'A',
-        'search': '/',
-        'neweps': 'N',
-        'details': 'enter',
-        'details_exit': 'esc',
-        'open_web': 'O',
-        'left': 'h',
-        'up': 'k',
-        'down': 'j',
-        'right': 'l',
-        'page_up': 'K',
-        'page_down': 'J',
-    },
-    'palette': {
-        'body':             ('', ''),
-        'focus':            ('standout', ''),
-        'head':             ('light red', 'black'),
-        'header':           ('bold', ''),
-        'status':           ('white', 'dark blue'),
-        'error':            ('light red', 'dark blue'),
-        'window':           ('white', 'dark blue'),
-        'button':           ('black', 'light gray'),
-        'button hilight':   ('white', 'dark red'),
-        'item_airing':      ('dark blue', ''),
-        'item_notaired':    ('yellow', ''),
-        'item_neweps':      ('white', 'brown'),
-        'item_updated':     ('white', 'dark green'),
-        'item_playing':     ('white', 'dark blue'),
-        'info_title':       ('light red', ''),
-        'info_section':     ('dark blue', ''),
-    }
-}
-
-gtk_defaults = {
-    'show_tray': True,
-    'close_to_tray': True,
-    'start_in_tray': False,
-    'tray_api_icon': False,
-    'remember_geometry': False,
-    'last_width': 740,
-    'last_height': 480,
-    'visible_columns': ['Title', 'Progress', 'Score', 'Percent'],
-    'episodebar_style': 1,
-    'colors': {
-        'is_airing': '#0099CC',
-        'is_playing': '#6C2DC7',
-        'is_queued': '#54C571',
-        'new_episode': '#FBB917',
-        'not_aired': '#999900',
-        'progress_bg': '#E5E5E5',
-        'progress_fg': '#99B3CC',
-        'progress_sub_bg': '#B3B3B3',
-        'progress_sub_fg': '#668099',
-        'progress_complete': '#99CCB3',
-    },
-}
-
 qt_defaults = {
     'show_tray': True,
     'close_to_tray': True,
@@ -866,8 +670,11 @@ qt_defaults = {
     'columns_per_api': False,
     'episodebar_style': 1,
     'episodebar_text': False,
-    'filter_bar_position': 2,
+    'filter_bar_position': 1,
     'filter_global': False,
+    'theme_mode': 'system',
+    'view_mode': 'grid',
+    'inspector_width': 320,
     'colors': {
         'is_airing': '#D2FAFA',
         'is_playing': '#9696FA',

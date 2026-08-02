@@ -190,14 +190,14 @@ class libkitsu(lib):
             ))
 
         try:
-            response = self.opener.open(request)
+            response = self.opener.open(request, timeout=20)
 
             # The response most probably will be gzipped so we
             # have to take care of that first
             if response.info().get('content-encoding') == 'gzip':
-                return gzip.GzipFile(fileobj=response).read().decode('utf-8')
+                return utils.read_response_limited(gzip.GzipFile(fileobj=response)).decode('utf-8')
             else:
-                return response.read().decode('utf-8')
+                return utils.read_response_limited(response).decode('utf-8')
         except urllib.error.HTTPError as e:
             if e.code == 401:
                 raise utils.APIError("Incorrect credentials.")
@@ -211,6 +211,8 @@ class libkitsu(lib):
             raise utils.APIError("URL error: %s" % e)
         except socket.timeout:
             raise utils.APIError("Operation timed out.")
+        except ValueError as e:
+            raise utils.APIError(str(e))
 
     def _parse_errors(self, e):
         try:
@@ -355,7 +357,6 @@ class libkitsu(lib):
                     # TODO : Including the mediatype returns a 500 for some reason.
                     # showid = int(entry['relationships'][self.mediatype]['data']['id'])
                     showid = int(entry['relationships']['media']['data']['id'])
-                    status = entry['attributes']['status']
                     rating = entry['attributes']['ratingTwenty']
 
                     showlist[showid] = utils.show()

@@ -15,11 +15,12 @@
 #
 
 import ntpath
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import xml.dom.minidom as xdmd
+from io import BytesIO
+from xml.parsers.expat import ExpatError
 
 import trackma.utils as utils
 from trackma.tracker import tracker
@@ -54,10 +55,12 @@ class PlexTracker(tracker.TrackerBase):
             else:
                 return IDLE
         except urllib.error.URLError as e:
-            if e.code == 401:
+            if getattr(e, 'code', None) == 401:
                 return CLAIMED
             else:
                 return NOT_RUNNING
+        except (ValueError, ExpatError):
+            return NOT_RUNNING
 
     def playing_file(self):
         # returns the filename of the currently playing file
@@ -140,7 +143,7 @@ class PlexTracker(tracker.TrackerBase):
             del self.status_log[0]
 
             # Wait for the interval before running check again
-            time.sleep(config['tracker_interval'])
+            self._stop_event.wait(config['tracker_interval'])
 
     def _get_plex_token(self):
         username = urllib.parse.quote(self.config['plex_user'])
@@ -158,8 +161,8 @@ class PlexTracker(tracker.TrackerBase):
 
         req = urllib.request.Request(
             'https://plex.tv/users/sign_in.xml', body, headers=headers)
-        response = urllib.request.urlopen(req)
-        data = response.read().decode("utf-8")
+        response = urllib.request.urlopen(req, timeout=3)
+        data = utils.read_response_limited(response).decode("utf-8")
 
         tdoc = xdmd.parseString(data)
         token = tdoc.getElementsByTagName("user")[0].getAttribute("authToken")
@@ -168,11 +171,11 @@ class PlexTracker(tracker.TrackerBase):
 
     def _get_xml_info(self, url, tag, attr):
         try:
-            uop = urllib.request.urlopen(url)
+            uop = urllib.request.urlopen(url, timeout=3)
         except urllib.error.URLError:
-            uop = urllib.request.urlopen(url+self.token)
+            uop = urllib.request.urlopen(url+self.token, timeout=3)
 
-        doc = xdmd.parse(uop)
+        doc = xdmd.parse(BytesIO(utils.read_response_limited(uop)))
         elem = doc.getElementsByTagName(tag)
         res = elem[0].getAttribute(attr)
 
