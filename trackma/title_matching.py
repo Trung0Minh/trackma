@@ -77,10 +77,26 @@ class TitleMatcher:
                 normalized = normalize_title(title)
                 matcher = difflib.SequenceMatcher(None, '', title.lower())
                 aliases.append((normalized, matcher))
-                self.exact.setdefault(normalized, item)
+                self.exact.setdefault(normalized, []).append(item)
             self.entries.append((item, aliases))
 
-    def match(self, show_title):
+    @staticmethod
+    def _select_for_episode(items, episode):
+        if episode is None or len(items) == 1:
+            return items[0]
+
+        def rank(item):
+            progress = item.get('my_progress', 0)
+            total = item.get('total', 0)
+            valid_episode = episode >= 1 and (not total or episode <= total)
+            expected_next = episode == progress + 1
+            not_already_watched = episode > progress
+            distance_from_next = abs((progress + 1) - episode)
+            return valid_episode, expected_next, not_already_watched, -distance_from_next
+
+        return max(items, key=rank)
+
+    def match(self, show_title, episode=None):
         if not show_title:
             return None
 
@@ -90,8 +106,8 @@ class TitleMatcher:
 
         normalized_query = normalize_title(show_title)
         exact = self.exact.get(normalized_query)
-        if exact is not None:
-            return exact
+        if exact:
+            return self._select_for_episode(exact, episode)
 
         if len(normalized_query.split()) >= 2:
             padded_query = ' ' + normalized_query + ' '

@@ -26,7 +26,7 @@ const session: SessionSnapshot = {
   },
   library: {
     queueCount: 1,
-    tracker: { state: 'wait' },
+    tracker: { state: 2, timer: 42, show: [{ title: 'Frieren' }, 13] },
     alternateTitles: {},
     shows: [
       {
@@ -67,6 +67,7 @@ describe('LibraryPage', () => {
     );
 
     expect(screen.getByRole('tab', { name: 'Watching 1' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('Update prompt in 42s')).toBeInTheDocument();
     expect(screen.getByText('Frieren')).toBeInTheDocument();
     expect(screen.queryByText('Pluto')).not.toBeInTheDocument();
 
@@ -96,6 +97,20 @@ describe('LibraryPage', () => {
     await user.click(screen.getByRole('button', { name: 'Open Frieren on AniList' }));
 
     expect(onCommand).toHaveBeenCalledWith('openExternal', session.library.shows[0]);
+  });
+
+  it('shows the numeric backend no-video state without treating a null timer as active', () => {
+    render(
+      <LibraryPage
+        session={{ ...session, library: { ...session.library, tracker: { state: 1, timer: null } } }}
+        viewMode="grid"
+        onViewModeChange={vi.fn()}
+        onSelect={vi.fn()}
+        onCommand={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('No video detected')).toBeInTheDocument();
   });
 
   it('shows watched, aired, and downloaded episodes on one progress bar', () => {

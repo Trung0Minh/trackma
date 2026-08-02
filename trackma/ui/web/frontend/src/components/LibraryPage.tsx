@@ -38,6 +38,28 @@ function episodeWidth(value: number, total: number) {
   return Math.min(100, Math.max(0, (value / total) * 100));
 }
 
+function trackerSummary(tracker: Record<string, unknown> | null) {
+  if (!tracker) return 'Not active';
+  const state = String(tracker.state ?? '').toLocaleLowerCase();
+  const stateNumber = typeof tracker.state === 'number' ? tracker.state : null;
+  const timer = typeof tracker.timer === 'number' ? tracker.timer : Number.NaN;
+  const show = tracker.show as [MediaShow, number] | null | undefined;
+  const showTitle = Array.isArray(show) ? show[0]?.title : undefined;
+  const episode = Array.isArray(show) ? show[1] : undefined;
+
+  if (stateNumber === 5 || state.includes('ignored')) return 'Ignored current playback';
+  if (stateNumber === 3 || state.includes('unrecognized')) return 'File name not recognized';
+  if (stateNumber === 4 || state.includes('not found')) return 'Title not in list';
+  if (stateNumber === 1 || state.includes('no video')) return 'No video detected';
+  if (stateNumber === 2 || state.includes('playing') || Number.isFinite(timer)) {
+    const subject = showTitle && episode ? `${showTitle} ep ${episode}` : 'detected title';
+    if (tracker.paused) return `Paused: ${subject}`;
+    if (Number.isFinite(timer) && timer > 0) return `Update prompt in ${timer}s`;
+    return `Watching ${subject}`;
+  }
+  return 'Monitoring players';
+}
+
 
 export function LibraryPage({
   session,
@@ -73,6 +95,7 @@ export function LibraryPage({
   }, [activeStatus, query, session.library]);
 
   return (
+    <>
     <section className="page library-page" aria-labelledby="library-title">
       <header className="page-header">
         <div>
@@ -81,25 +104,12 @@ export function LibraryPage({
             {session.library.shows.length} titles, {session.library.queueCount} waiting to sync
           </p>
         </div>
-        <div className="header-actions" aria-label="Library actions">
-          <button className="icon-button" onClick={() => onCommand('scan')} title="Scan library">
-            <ScanSearch aria-hidden="true" />
-            <span className="sr-only">Scan library</span>
-          </button>
-          <button className="icon-button" onClick={() => onCommand('download')} title="Retrieve list">
-            <RefreshCw aria-hidden="true" />
-            <span className="sr-only">Retrieve list</span>
-          </button>
-          <button className="primary-button" onClick={() => onCommand('upload')}>
-            <Send aria-hidden="true" /> Sync changes
-          </button>
-        </div>
       </header>
 
       <div className="library-pulse" aria-label="Current library state">
         <div>
           <span className="pulse-label">Tracker</span>
-          <strong>{session.library.tracker ? 'Monitoring players' : 'Not active'}</strong>
+          <strong>{trackerSummary(session.library.tracker)}</strong>
         </div>
         <div>
           <span className="pulse-label">Local media</span>
@@ -266,5 +276,19 @@ export function LibraryPage({
         </div>
       )}
     </section>
+    <div className="floating-library-actions" role="toolbar" aria-label="Library actions">
+      <button className="icon-button" onClick={() => onCommand('scan')} title="Scan library">
+        <ScanSearch aria-hidden="true" />
+        <span className="sr-only">Scan library</span>
+      </button>
+      <button className="icon-button" onClick={() => onCommand('download')} title="Retrieve list">
+        <RefreshCw aria-hidden="true" />
+        <span className="sr-only">Retrieve list</span>
+      </button>
+      <button className="primary-button" aria-label="Sync changes" title="Sync changes" onClick={() => onCommand('upload')}>
+        <Send aria-hidden="true" />
+      </button>
+    </div>
+    </>
   );
 }

@@ -430,9 +430,9 @@ def estimate_aired_episodes(show):
     return 0
 
 
-def guess_show(show_title, tracker_list):
+def guess_show(show_title, tracker_list, episode=None):
     """Take a title and search for it fuzzily in the tracker list."""
-    return TitleMatcher(tracker_list).match(show_title)
+    return TitleMatcher(tracker_list).match(show_title, episode=episode)
 
 
 def redirect_show(show_tuple, redirections, tracker_list):

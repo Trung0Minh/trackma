@@ -15,7 +15,8 @@ describe('App', () => {
     const header = screen.getByRole('banner', { name: 'Application header' });
     expect(header).toContainElement(screen.getByRole('navigation', { name: 'Primary navigation' }));
     expect(header).toContainElement(screen.getByRole('button', { name: 'Manage accounts' }));
-    expect(header).toContainElement(screen.getByText('Engine connected'));
+    expect(header).not.toContainElement(screen.getByText('Engine connected'));
+    expect(screen.getByRole('status')).toHaveTextContent('Engine connected');
     expect(screen.queryByText('Home')).not.toBeInTheDocument();
     expect(screen.queryByText('Progress')).not.toBeInTheDocument();
 
@@ -44,5 +45,17 @@ describe('App', () => {
 
     expect(screen.getByRole('dialog', { name: 'Update progress?' })).toBeInTheDocument();
     expect(screen.getByText('Set Spy x Family to episode 23?')).toBeInTheDocument();
+  });
+
+  it('shows live tracker countdown state', async () => {
+    const bridge = new MockBridge();
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+
+    act(() => bridge.emit('tracker_state', { state: 'Playing', timer: 37, show: [{ title: 'Spy x Family' }, 23] }));
+
+    const countdown = screen.getByRole('status', { name: 'Playback update countdown' });
+    expect(countdown).toHaveTextContent('Spy x Family · Episode 23');
+    expect(countdown).toHaveTextContent('Update prompt in 37s');
   });
 });

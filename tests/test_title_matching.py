@@ -56,6 +56,24 @@ def test_guess_show_matches_short_filename_title_inside_long_alias():
     assert result is expected
 
 
+def test_title_matcher_uses_episode_to_disambiguate_identical_titles():
+    completed_special = {
+        'id': 1,
+        'titles': ['False Memory'],
+        'my_progress': 1,
+        'total': 1,
+    }
+    currently_watching = {
+        'id': 2,
+        'titles': ['False Memory'],
+        'my_progress': 1,
+        'total': 7,
+    }
+    matcher = utils.TitleMatcher(_tracker_list(completed_special, currently_watching))
+
+    assert matcher.match('False Memory', episode=2) is currently_watching
+
+
 def test_title_matcher_reuses_preprocessed_aliases(monkeypatch):
     shows = _tracker_list(*(
         _show(index, ['Example Show {}'.format(index)])

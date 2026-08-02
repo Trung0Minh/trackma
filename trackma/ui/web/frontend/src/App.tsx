@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, Timer, X } from 'lucide-react';
 
 import type { AppBridge, BridgeEvent } from './bridge';
 import { AccountPanel } from './components/AccountPanel';
@@ -33,6 +33,17 @@ const refreshEvents = new Set([
   'queue_changed',
   'library_updated',
 ]);
+
+
+function playbackCountdown(tracker: Record<string, unknown> | null) {
+  if (!tracker) return null;
+  const state = String(tracker.state ?? '').toLocaleLowerCase();
+  const playing = tracker.state === 2 || state.includes('playing');
+  const timer = typeof tracker.timer === 'number' ? tracker.timer : Number.NaN;
+  const show = tracker.show as [MediaShow, number] | null | undefined;
+  if (!playing || !Number.isFinite(timer) || timer <= 0 || !Array.isArray(show)) return null;
+  return { title: show[0]?.title ?? 'Detected title', episode: show[1], timer };
+}
 
 
 export default function App({ bridge }: AppProps) {
@@ -99,6 +110,12 @@ export default function App({ bridge }: AppProps) {
 
   useEffect(() => bridge.subscribe((event: BridgeEvent) => {
     if (refreshEvents.has(event.name)) void refreshLibrary();
+    if (event.name === 'tracker_state') {
+      setSession((current) => current ? {
+        ...current,
+        library: { ...current.library, tracker: event.payload as Record<string, unknown> | null },
+      } : current);
+    }
     if (event.name === 'message') {
       const payload = event.payload as { message?: string };
       if (payload.message) showMessage(payload.message);
@@ -217,6 +234,8 @@ export default function App({ bridge }: AppProps) {
     return <AccountPanel bridge={bridge} bootstrap={bootstrap} onSelect={openSession} onBootstrap={setBootstrap} onMessage={showMessage} />;
   }
 
+  const countdown = playbackCountdown(session.library.tracker);
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">Skip to content</a>
@@ -237,6 +256,16 @@ export default function App({ bridge }: AppProps) {
         {page === 'settings' && <SettingsPage bridge={bridge} onSaved={showMessage} onThemeChange={setTheme} />}
       </main>
 
+      <div className="connection-state" role="status"><span aria-hidden="true" /><span>Engine connected</span></div>
+      {countdown && (
+        <div className="tracker-countdown" role="status" aria-label="Playback update countdown" aria-live="polite" aria-atomic="true">
+          <span className="tracker-countdown-icon" aria-hidden="true"><Timer /></span>
+          <span className="tracker-countdown-copy">
+            <small>{countdown.title} · Episode {countdown.episode}</small>
+            <strong>Update prompt in {countdown.timer}s</strong>
+          </span>
+        </div>
+      )}
       {busy && <div className="busy-indicator" role="status"><RefreshCw /> Working</div>}
       {toast && <div className="toast" role="status"><CheckCircle2 /> {toast}</div>}
       {selected && <MediaDrawer bridge={bridge} session={session} show={selected} onClose={() => setSelected(null)} onChanged={refreshLibrary} onMessage={showMessage} />}

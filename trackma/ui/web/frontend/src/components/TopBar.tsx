@@ -66,10 +66,8 @@ export function TopBar({
       </nav>
 
       <div className="topbar-tools">
-        <span className="connection-state"><span aria-hidden="true" /><span>Engine connected</span></span>
         {supportedMediaTypes.length > 1 && (
           <label className="media-switcher">
-            <span>Media</span>
             <select aria-label="Media type" value={mediaType} onChange={(event) => onMediaTypeChange(event.target.value)}>
               {supportedMediaTypes.map((value) => <option key={value}>{value}</option>)}
             </select>

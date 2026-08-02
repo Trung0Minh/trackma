@@ -286,7 +286,7 @@ class TrackerBase(object):
                 # Format not recognized
                 return (utils.Tracker.UNRECOGNIZED, None)
 
-            playing_show = self.title_matcher.match(show_title)
+            playing_show = self.title_matcher.match(show_title, episode=show_ep)
             self.msg.debug("Show guess: {}: {} - {}".format(show_title, playing_show, show_ep))
 
             if playing_show:
