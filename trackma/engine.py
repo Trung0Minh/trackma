@@ -597,6 +597,15 @@ class Engine:
 
         return self.data_handler.search(criteria, method)
 
+    def discover_home(self):
+        return self.data_handler.discover_home()
+
+    def discover_options(self):
+        return self.data_handler.discover_options()
+
+    def discover_browse(self, filters, page=1, per_page=24):
+        return self.data_handler.discover_browse(filters, page=page, per_page=per_page)
+
     def add_show(self, show, status=None):
         """
         Adds **show** to the list and queues the list update
@@ -612,6 +621,14 @@ class Engine:
                 raise utils.EngineError('Invalid status.')
 
             show['my_status'] = status
+
+        if (
+                self.config['auto_date_change'] and
+                self.mediainfo.get('can_date') and
+                show.get('my_status') in self.mediainfo.get('statuses_start', []) and
+                not show.get('my_start_date')
+        ):
+            show['my_start_date'] = datetime.date.today()
 
         # Add in data handler
         self.data_handler.queue_add(show)

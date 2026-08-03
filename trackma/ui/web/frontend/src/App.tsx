@@ -207,15 +207,6 @@ export default function App({ bridge }: AppProps) {
     });
   }
 
-  async function searchDiscover(payload: Record<string, unknown>) {
-    setBusy(true);
-    try {
-      return await bridge.call<MediaShow[]>('discover.search', payload);
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function addDiscovered(show: MediaShow, status: StatusValue) {
     await run(async () => {
       const library = await bridge.call<LibrarySnapshot>('discover.add', { show, status });
@@ -268,7 +259,7 @@ export default function App({ bridge }: AppProps) {
       <main id="main-content" className="main-content">
         {error && <div className="error-banner" role="alert"><AlertTriangle /><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss error"><X /></button></div>}
         {page === 'library' && <LibraryPage session={session} viewMode={viewMode} onViewModeChange={changeViewMode} onSelect={setSelected} onCommand={libraryCommand} />}
-        {page === 'discover' && <DiscoverPage session={session} busy={busy} initialQuery={trackerAdd?.show.title} trackerEpisode={trackerAdd?.episode} onSearch={searchDiscover} onAdd={addDiscovered} />}
+        {page === 'discover' && <DiscoverPage bridge={bridge} session={session} initialQuery={trackerAdd?.show.title} trackerEpisode={trackerAdd?.episode} onAdd={addDiscovered} />}
         {page === 'settings' && <SettingsPage bridge={bridge} onSaved={showMessage} onThemeChange={setTheme} />}
       </main>
 

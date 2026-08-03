@@ -68,6 +68,7 @@ class FakeEngine:
         }
         self.signals = {}
         self.dates = None
+        self.catalog_details_requested = None
 
     def connect_signal(self, name, callback):
         self.signals[name] = callback
@@ -127,6 +128,68 @@ class FakeEngine:
         assert page == 1
         assert include_page_info is True
         return {'results': [{'id': 'release-1'}], 'has_next': True}
+
+    def discover_home(self):
+        return {
+            "capabilities": {
+                "mode": "full",
+                "filters": ["search", "genres", "year"],
+                "supportsHome": True,
+            },
+            "sections": [
+                {
+                    "id": "trending",
+                    "title": "Trending now",
+                    "preset": {"sort": "trending"},
+                    "items": [
+                        {
+                            "id": 11,
+                            "title": "Delicious in Dungeon",
+                            "total": 24,
+                            "_catalog": {"genres": ["Adventure"], "averageScore": 82},
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def discover_options(self):
+        return {
+            "genres": [{"value": "Adventure", "label": "Adventure"}],
+            "tags": [],
+            "formats": [],
+            "statuses": [],
+            "countries": [],
+            "sources": [],
+            "streaming": [],
+            "sorts": [],
+        }
+
+    def discover_browse(self, filters, page=1, per_page=24):
+        assert filters == {"search": "dungeon"}
+        assert page == 2
+        assert per_page == 24
+        return {
+            "items": [
+                {
+                    "id": 11,
+                    "title": "Delicious in Dungeon",
+                    "total": 24,
+                    "_catalog": {"genres": ["Adventure"]},
+                }
+            ],
+            "pageInfo": {"currentPage": 2, "lastPage": 4, "total": 80, "hasNextPage": True},
+        }
+
+    def get_show_details(self, show):
+        self.catalog_details_requested = show
+        return {
+            **show,
+            "_catalog": {
+                "description": "A party returns to a dangerous dungeon.",
+                "genres": ["Adventure", "Fantasy"],
+            },
+        }
 
 
 def test_normalize_json_converts_dates_sets_and_dictionary_keys():
@@ -293,6 +356,68 @@ def test_torrent_search_exposes_page_availability():
     )
 
     assert result == {"results": [{"id": "release-1"}], "hasNext": True}
+
+
+def test_discover_home_normalizes_catalog_items_and_marks_library_membership():
+    controller = BackendController(
+        account_manager=FakeAccountManager(),
+        engine_factory=FakeEngine,
+    )
+    controller.handle("session.open", {"accountId": 2, "remember": True})
+
+    result = controller.handle("discover.home", {})
+
+    item = result["sections"][0]["items"][0]
+    assert result["capabilities"]["mode"] == "full"
+    assert item["show"]["title"] == "Delicious in Dungeon"
+    assert "_catalog" not in item["show"]
+    assert item["metadata"] == {"genres": ["Adventure"], "averageScore": 82}
+    assert item["inLibrary"] is False
+
+
+def test_discover_browse_returns_numbered_page_metadata():
+    controller = BackendController(
+        account_manager=FakeAccountManager(),
+        engine_factory=FakeEngine,
+    )
+    controller.handle("session.open", {"accountId": 2, "remember": True})
+
+    result = controller.handle(
+        "discover.browse",
+        {"filters": {"search": "dungeon"}, "page": 2, "perPage": 24},
+    )
+
+    assert result["pageInfo"] == {
+        "currentPage": 2,
+        "lastPage": 4,
+        "total": 80,
+        "hasNextPage": True,
+    }
+    assert result["items"][0]["metadata"]["genres"] == ["Adventure"]
+
+
+def test_discover_details_accepts_a_catalog_show_that_is_not_in_the_library():
+    controller = BackendController(
+        account_manager=FakeAccountManager(),
+        engine_factory=FakeEngine,
+    )
+    controller.handle("session.open", {"accountId": 2, "remember": True})
+    catalog_show = {"id": 11, "title": "Delicious in Dungeon", "total": 24}
+
+    result = controller.handle(
+        "discover.details",
+        {
+            "show": catalog_show,
+            "metadata": {"season": "FALL", "seasonYear": 2023, "source": "MANGA"},
+        },
+    )
+
+    assert controller.engine.catalog_details_requested == catalog_show
+    assert result["show"] == catalog_show
+    assert result["metadata"]["genres"] == ["Adventure", "Fantasy"]
+    assert result["metadata"]["season"] == "FALL"
+    assert result["metadata"]["seasonYear"] == 2023
+    assert result["metadata"]["source"] == "MANGA"
 
 
 def _bridge_response(bridge, request_id, command, payload):

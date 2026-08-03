@@ -2,6 +2,8 @@ import { BridgeError, type AppBridge, type BridgeEvent } from './bridge';
 import type {
   Account,
   Bootstrap,
+  CatalogMetadata,
+  DiscoverItem,
   LibrarySnapshot,
   MediaShow,
   Service,
@@ -95,6 +97,63 @@ const catalog: MediaShow[] = [
     airedEpisodes: 12,
   },
 ];
+
+const browseCatalog: MediaShow[] = [
+  {
+    id: 154587,
+    title: 'Frieren: Beyond Journey’s End',
+    url: 'https://anilist.co/anime/154587/',
+    image: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx154587-n1fmjRv4JQUd.jpg',
+    type: 'TV',
+    status: 'Finished',
+    total: 28,
+    my_progress: 0,
+    my_status: 'PLANNING',
+    my_score: 0,
+  },
+  {
+    id: 166770,
+    title: 'Delicious in Dungeon',
+    url: 'https://anilist.co/anime/166770/',
+    image: 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx166770-d4OtJg2I7H6T.jpg',
+    type: 'TV',
+    status: 'Finished',
+    total: 24,
+    my_progress: 0,
+    my_status: 'PLANNING',
+    my_score: 0,
+  },
+  ...catalog,
+];
+
+function catalogMetadata(show: MediaShow, rank?: number): CatalogMetadata {
+  const finished = String(show.status ?? '').toLocaleLowerCase().includes('finished');
+  return {
+    titles: { userPreferred: show.title, romaji: show.title, english: show.title },
+    description: show.title === 'Delicious in Dungeon'
+      ? 'A stranded adventuring party cooks its way through a dangerous dungeon.'
+      : 'A character-led journey through memory, friendship, and changing worlds.',
+    genres: show.title === 'Delicious in Dungeon'
+      ? ['Adventure', 'Comedy', 'Fantasy']
+      : ['Adventure', 'Drama', 'Fantasy'],
+    tags: [{ name: 'Found Family', rank: 86 }, { name: 'Travel', rank: 78 }],
+    studios: ['Madhouse'],
+    format: show.type ?? 'TV',
+    status: finished ? 'FINISHED' : 'RELEASING',
+    averageScore: show.my_score ? Math.round(show.my_score * 10) : 84,
+    popularity: 175000,
+    favourites: 21000,
+    duration: 24,
+    season: 'SUMMER',
+    seasonYear: 2026,
+    source: 'MANGA',
+    countryOfOrigin: 'JP',
+    nextAiringEpisode: finished ? null : { episode: Math.max(1, show.my_progress + 1), timeUntilAiring: 32000 },
+    externalLinks: [{ site: 'Crunchyroll', url: 'https://www.crunchyroll.com/', type: 'STREAMING' }],
+    coverColor: '#4ba7d8',
+    rank,
+  };
+}
 
 
 export class MockBridge implements AppBridge {
@@ -207,11 +266,94 @@ export class MockBridge implements AppBridge {
           show.title.toLocaleLowerCase().includes(String(payload.query ?? '').toLocaleLowerCase()),
         );
         break;
+      case 'discover.home': {
+        const item = (show: MediaShow, rank?: number): DiscoverItem => ({
+          show: { ...show },
+          metadata: catalogMetadata(show, rank),
+          inLibrary: this.shows.some((current) => String(current.id) === String(show.id)),
+        });
+        const six = browseCatalog.slice(0, 6);
+        result = {
+          capabilities: {
+            mode: 'full',
+            filters: ['search', 'genres', 'tags', 'year', 'season', 'formats', 'statuses', 'country', 'source', 'streaming', 'sort'],
+            supportsHome: true,
+            supportsAdvanced: true,
+            supportsPagination: true,
+          },
+          sections: [
+            { id: 'trending', title: 'Trending now', preset: { sort: 'trending' }, items: six.map((show) => item(show)) },
+            { id: 'popular-season', title: 'Popular this season', preset: { season: 'SUMMER', year: 2026, sort: 'popularity' }, items: [...six].reverse().map((show) => item(show)) },
+            { id: 'upcoming-season', title: 'Upcoming next season', preset: { season: 'FALL', year: 2026, sort: 'popularity' }, items: browseCatalog.slice(1, 7).map((show) => item(show)) },
+            { id: 'popular', title: 'All time popular', preset: { sort: 'popularity' }, items: browseCatalog.slice(2, 8).map((show) => item(show)) },
+            { id: 'top', title: 'Top 100 anime', preset: { sort: 'score' }, items: browseCatalog.slice(0, 8).map((show, index) => item(show, index + 1)) },
+          ],
+        };
+        break;
+      }
+      case 'discover.options':
+        result = {
+          genres: ['Action', 'Adventure', 'Comedy', 'Drama', 'Fantasy', 'Romance', 'Sci-Fi'].map((value) => ({ value, label: value })),
+          tags: ['Found Family', 'Travel', 'Magic', 'School', 'Female Protagonist'].map((value) => ({ value, label: value, group: 'Themes' })),
+          formats: ['TV', 'TV_SHORT', 'MOVIE', 'SPECIAL', 'OVA', 'ONA'].map((value) => ({ value, label: value.replace('_', ' ') })),
+          statuses: ['RELEASING', 'FINISHED', 'NOT_YET_RELEASED', 'CANCELLED'].map((value) => ({ value, label: value.replaceAll('_', ' ') })),
+          countries: [{ value: 'JP', label: 'Japan' }, { value: 'KR', label: 'South Korea' }, { value: 'CN', label: 'China' }],
+          sources: [{ value: 'ORIGINAL', label: 'Original' }, { value: 'MANGA', label: 'Manga' }, { value: 'LIGHT_NOVEL', label: 'Light novel' }],
+          streaming: [{ value: 'Crunchyroll', label: 'Crunchyroll' }, { value: 'Netflix', label: 'Netflix' }, { value: 'HIDIVE', label: 'HIDIVE' }],
+          sorts: [
+            { value: 'relevance', label: 'Relevance' },
+            { value: 'popularity', label: 'Popularity' },
+            { value: 'trending', label: 'Trending' },
+            { value: 'score', label: 'Average score' },
+            { value: 'favorites', label: 'Favorites' },
+            { value: 'newest', label: 'Newest' },
+            { value: 'oldest', label: 'Oldest' },
+            { value: 'title', label: 'Title A-Z' },
+          ],
+        };
+        break;
+      case 'discover.browse': {
+        const filters = (payload.filters ?? {}) as Record<string, unknown>;
+        const query = String(filters.search ?? '').toLocaleLowerCase();
+        const page = Number(payload.page ?? 1);
+        const perPage = Number(payload.perPage ?? 24);
+        const filtered = browseCatalog.filter((show) => show.title.toLocaleLowerCase().includes(query));
+        const start = (page - 1) * perPage;
+        result = {
+          items: filtered.slice(start, start + perPage).map((show) => ({
+            show: { ...show },
+            metadata: catalogMetadata(show),
+            inLibrary: this.shows.some((current) => String(current.id) === String(show.id)),
+          })),
+          pageInfo: {
+            currentPage: page,
+            lastPage: Math.max(1, Math.ceil(filtered.length / perPage)),
+            total: filtered.length,
+            hasNextPage: start + perPage < filtered.length,
+          },
+        };
+        break;
+      }
+      case 'discover.details': {
+        const show = payload.show as MediaShow;
+        result = {
+          show: { ...show },
+          metadata: catalogMetadata(show),
+          inLibrary: this.shows.some((current) => String(current.id) === String(show.id)),
+        };
+        break;
+      }
       case 'discover.add': {
         const status = typeof payload.status === 'string' || typeof payload.status === 'number'
           ? payload.status
           : 'PLANNING';
-        const show: MediaShow = { ...(payload.show as MediaShow), my_status: status };
+        const show: MediaShow = {
+          ...(payload.show as MediaShow),
+          my_status: status,
+          my_start_date: this.engineSettings.auto_date_change && ['CURRENT', 'REPEATING'].includes(String(status))
+            ? new Date().toISOString().slice(0, 10)
+            : (payload.show as MediaShow).my_start_date,
+        };
         if (!this.shows.some((item) => String(item.id) === String(show.id))) this.shows.push(show);
         result = this.library();
         break;

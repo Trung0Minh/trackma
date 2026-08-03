@@ -73,6 +73,10 @@ class BackendController:
             "show.play": self._play_show,
             "show.playRandom": self._play_random,
             "show.openFolder": self._open_folder,
+            "discover.home": self._discover_home,
+            "discover.options": self._discover_options,
+            "discover.browse": self._discover_browse,
+            "discover.details": self._discover_details,
             "discover.search": self._discover_search,
             "discover.add": self._discover_add,
             "torrents.search": self._torrent_search,
@@ -378,6 +382,91 @@ class BackendController:
             if not criteria:
                 raise CommandError("INVALID_INPUT", "Enter a search term")
         return self._require_engine().search(criteria, methods[method_name]) or []
+
+    def _catalog_item(
+        self,
+        raw_show: dict[str, Any],
+        library_ids: set[str] | None = None,
+    ) -> dict[str, Any]:
+        show = dict(raw_show)
+        metadata = dict(show.pop("_catalog", {}) or {})
+        extra = show.get("extra") or []
+        if isinstance(extra, list):
+            extra_map = {
+                str(key).casefold(): value
+                for entry in extra
+                if isinstance(entry, (list, tuple)) and len(entry) == 2
+                for key, value in [entry]
+            }
+            if extra_map:
+                metadata.setdefault("description", extra_map.get("synopsis"))
+                metadata.setdefault("genres", extra_map.get("genres") or [])
+                metadata.setdefault("studios", extra_map.get("studios") or [])
+                metadata.setdefault("averageScore", extra_map.get("average score"))
+                metadata.setdefault("meanScore", extra_map.get("mean score"))
+        if library_ids is None:
+            library_ids = {
+                str(item["id"])
+                for item in self._require_engine().get_list() or []
+            }
+        return {
+            "show": show,
+            "metadata": metadata,
+            "inLibrary": str(show.get("id")) in library_ids,
+        }
+
+    def _discover_home(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        result = self._require_engine().discover_home()
+        library_ids = {
+            str(item["id"])
+            for item in self._require_engine().get_list() or []
+        }
+        return {
+            "capabilities": result.get("capabilities", {}),
+            "sections": [
+                {
+                    **section,
+                    "items": [
+                        self._catalog_item(item, library_ids)
+                        for item in section.get("items", [])
+                    ],
+                }
+                for section in result.get("sections", [])
+            ],
+        }
+
+    def _discover_options(self, _payload: dict[str, Any]) -> dict[str, Any]:
+        return self._require_engine().discover_options()
+
+    def _discover_browse(self, payload: dict[str, Any]) -> dict[str, Any]:
+        filters = payload.get("filters") or {}
+        if not isinstance(filters, dict):
+            raise CommandError("INVALID_INPUT", "Discover filters must be an object")
+        page = max(1, int(payload.get("page", 1)))
+        per_page = min(50, max(1, int(payload.get("perPage", 24))))
+        result = self._require_engine().discover_browse(filters, page=page, per_page=per_page)
+        library_ids = {
+            str(item["id"])
+            for item in self._require_engine().get_list() or []
+        }
+        return {
+            "items": [
+                self._catalog_item(item, library_ids)
+                for item in result.get("items", [])
+            ],
+            "pageInfo": result.get("pageInfo", {}),
+        }
+
+    def _discover_details(self, payload: dict[str, Any]) -> dict[str, Any]:
+        show = payload.get("show")
+        if not isinstance(show, dict) or "id" not in show:
+            raise CommandError("INVALID_INPUT", "A catalog show is required")
+        details = self._require_engine().get_show_details(show)
+        item = self._catalog_item(details)
+        browse_metadata = payload.get("metadata")
+        if isinstance(browse_metadata, dict):
+            item["metadata"] = {**browse_metadata, **item["metadata"]}
+        return item
 
     def _discover_add(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._require_engine().add_show(payload["show"], payload.get("status"))

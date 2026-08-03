@@ -1,136 +1,243 @@
-import { useEffect, useState } from 'react';
-import { CalendarDays, Check, Plus, Search, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Search } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
-import type { MediaShow, SessionSnapshot, StatusValue } from '../types';
+import type { AppBridge } from '../bridge';
+import type {
+  DiscoverFilterOptions,
+  DiscoverFilters,
+  DiscoverHome,
+  DiscoverItem,
+  DiscoverResults,
+  MediaShow,
+  SessionSnapshot,
+  StatusValue,
+} from '../types';
+import { DiscoverCatalog, DiscoverCatalogSkeleton } from './DiscoverCatalog';
+import { DiscoverDetailsDrawer } from './DiscoverDetailsDrawer';
+import { DiscoverFiltersBar } from './DiscoverFilters';
 
+
+const emptyOptions: DiscoverFilterOptions = {
+  genres: [],
+  tags: [],
+  formats: [],
+  statuses: [],
+  countries: [],
+  sources: [],
+  streaming: [],
+  sorts: [],
+};
+
+const defaultFilters: DiscoverFilters = { sort: 'popularity' };
 
 interface DiscoverPageProps {
+  bridge: AppBridge;
   session: SessionSnapshot;
-  busy: boolean;
   initialQuery?: string;
   trackerEpisode?: number;
-  onSearch(payload: Record<string, unknown>): Promise<MediaShow[]>;
   onAdd(show: MediaShow, status: StatusValue): Promise<void>;
 }
 
+function hasBrowseFilters(filters: DiscoverFilters) {
+  return Object.entries(filters).some(([key, value]) => {
+    if (key === 'sort') return value !== undefined && value !== 'popularity';
+    return Array.isArray(value) ? value.length > 0 : value !== undefined && value !== '';
+  });
+}
 
-export function DiscoverPage({ session, busy, initialQuery, trackerEpisode, onSearch, onAdd }: DiscoverPageProps) {
-  const [method, setMethod] = useState<'keyword' | 'season'>('keyword');
-  const [query, setQuery] = useState('');
-  const [season, setSeason] = useState('Summer');
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [status, setStatus] = useState<StatusValue>(session.media.statusOptions[0]?.value ?? '');
-  const [results, setResults] = useState<MediaShow[]>([]);
-  const [added, setAdded] = useState<Set<string>>(new Set());
+export function DiscoverPage({ bridge, session, initialQuery, trackerEpisode, onAdd }: DiscoverPageProps) {
+  const [home, setHome] = useState<DiscoverHome | null>(null);
+  const [options, setOptions] = useState<DiscoverFilterOptions>(emptyOptions);
+  const [filters, setFilters] = useState<DiscoverFilters>(defaultFilters);
+  const [results, setResults] = useState<DiscoverResults | null>(null);
+  const [browsing, setBrowsing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<DiscoverItem | null>(null);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+  const requestSequence = useRef(0);
+  const resultsTop = useRef<HTMLDivElement>(null);
+
+  const loadHome = useCallback(async () => {
+    const sequence = ++requestSequence.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextHome, nextOptions] = await Promise.all([
+        bridge.call<DiscoverHome>('discover.home'),
+        bridge.call<DiscoverFilterOptions>('discover.options'),
+      ]);
+      if (sequence !== requestSequence.current) return;
+      setHome(nextHome);
+      setOptions(nextOptions);
+    } catch (caught) {
+      if (sequence === requestSequence.current) {
+        setError(caught instanceof Error ? caught.message : 'Could not load the catalog');
+      }
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false);
+    }
+  }, [bridge]);
 
   useEffect(() => {
-    if (initialQuery) {
-      setMethod('keyword');
-      setQuery(initialQuery);
-    }
+    setFilters(defaultFilters);
+    setResults(null);
+    setBrowsing(false);
+    setSelected(null);
+    setAddedIds(new Set());
+    void loadHome();
+  }, [loadHome, session.account.id, session.api.mediatype]);
+
+  useEffect(() => {
+    if (!initialQuery) return;
+    setFilters((current) => ({ ...current, search: initialQuery }));
+    setBrowsing(true);
   }, [initialQuery]);
 
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const payload = method === 'keyword'
-      ? { method, query }
-      : { method, season, year };
-    setResults(await onSearch(payload));
+  const browse = useCallback(async (nextFilters: DiscoverFilters, page: number) => {
+    const sequence = ++requestSequence.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await bridge.call<DiscoverResults>('discover.browse', {
+        filters: nextFilters,
+        page,
+        perPage: 24,
+      });
+      if (sequence !== requestSequence.current) return;
+      setResults(next);
+    } catch (caught) {
+      if (sequence === requestSequence.current) {
+        setError(caught instanceof Error ? caught.message : 'Could not search the catalog');
+      }
+    } finally {
+      if (sequence === requestSequence.current) setLoading(false);
+    }
+  }, [bridge]);
+
+  useEffect(() => {
+    if (!browsing) return;
+    const timer = window.setTimeout(() => void browse(filters, 1), 350);
+    return () => window.clearTimeout(timer);
+  }, [browse, browsing, filters]);
+
+  function updateFilters(next: DiscoverFilters) {
+    setFilters(next);
+    setBrowsing(hasBrowseFilters(next));
+    if (!hasBrowseFilters(next)) setResults(null);
   }
 
-  async function add(show: MediaShow) {
-    await onAdd(show, status);
-    setAdded((current) => new Set(current).add(String(show.id)));
+  function viewAll(preset: DiscoverFilters) {
+    setFilters({ ...defaultFilters, ...preset });
+    setBrowsing(true);
+    resultsTop.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
+
+  async function changePage(page: number) {
+    await browse(filters, page);
+    resultsTop.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function openDetails(item: DiscoverItem) {
+    setSelected(item);
+    setDetailsLoading(true);
+    try {
+      const details = await bridge.call<DiscoverItem>('discover.details', {
+        show: item.show,
+        metadata: item.metadata,
+      });
+      setSelected(details);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not load title details');
+    } finally {
+      setDetailsLoading(false);
+    }
+  }
+
+  async function add(item: DiscoverItem, status: StatusValue) {
+    await onAdd(item.show, status);
+    setAddedIds((current) => new Set(current).add(String(item.show.id)));
+    setSelected((current) => current && String(current.show.id) === String(item.show.id)
+      ? { ...current, inLibrary: true }
+      : current);
+  }
+
+  const markAdded = (item: DiscoverItem): DiscoverItem => ({
+    ...item,
+    inLibrary: item.inLibrary || addedIds.has(String(item.show.id)),
+  });
 
   return (
     <section className="page discover-page" aria-labelledby="discover-title">
-      <header className="page-header discover-heading">
-        <div>
-          <h1 id="discover-title">Find something worth your time</h1>
-          <p className="page-description">Search {session.account.serviceName} and add a title without leaving Trackma.</p>
-        </div>
-        <Sparkles className="header-art" aria-hidden="true" />
-      </header>
+      <h1 id="discover-title" className="sr-only">Browse {session.api.mediatype}</h1>
 
-      <form className="discover-search" onSubmit={submit}>
-        {trackerEpisode !== undefined && <p className="tracker-request" role="status">Tracker request: add the matching title, then set progress to episode {trackerEpisode}.</p>}
-        {session.media.searchMethods.length > 1 && (
-          <div className="method-switch" aria-label="Search method">
-            <button type="button" aria-pressed={method === 'keyword'} onClick={() => setMethod('keyword')}>Keyword</button>
-            <button type="button" aria-pressed={method === 'season'} onClick={() => setMethod('season')}>Season</button>
+      {trackerEpisode !== undefined && (
+        <p className="tracker-request" role="status">
+          Add the matching title to set progress to episode {trackerEpisode}.
+        </p>
+      )}
+
+      <DiscoverFiltersBar
+        mediaType={session.api.mediatype}
+        capabilities={home?.capabilities ?? null}
+        options={options}
+        filters={filters}
+        onChange={updateFilters}
+        onReset={() => updateFilters(defaultFilters)}
+      />
+
+      {error && (
+        <div className="discover-inline-error" role="alert">
+          <AlertTriangle aria-hidden="true" />
+          <span>{error}</span>
+          <button type="button" onClick={() => browsing ? void browse(filters, results?.pageInfo.currentPage ?? 1) : void loadHome()}>Retry</button>
+        </div>
+      )}
+
+      <div ref={resultsTop} className="discover-content">
+        {loading && !home && <DiscoverCatalogSkeleton />}
+        {!loading && home && !browsing && home.sections.length > 0 && (
+          <DiscoverCatalog
+            sections={home.sections.map((section) => ({ ...section, items: section.items.map(markAdded) }))}
+            statusOptions={session.media.statusOptions}
+            onViewAll={viewAll}
+            onDetails={(item) => void openDetails(item)}
+            onAdd={add}
+          />
+        )}
+        {!loading && home && !browsing && home.sections.length === 0 && (
+          <div className="discover-fallback-empty">
+            <Search aria-hidden="true" />
+            <h2>Search {session.account.serviceName}</h2>
+            <p>This service supports catalog search but does not provide AniList-style browse collections.</p>
           </div>
         )}
-        <div className="discover-fields">
-          {method === 'keyword' ? (
-            <label className="search-field discover-query">
-              <Search aria-hidden="true" />
-              <span className="sr-only">Search remote catalog</span>
-              <input
-                type="search"
-                aria-label="Search remote catalog"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Title, alternate title, or keyword"
-                required
-              />
-            </label>
-          ) : (
-            <div className="season-fields">
-              <CalendarDays aria-hidden="true" />
-              <label>Season
-                <select value={season} onChange={(event) => setSeason(event.target.value)}>
-                  {['Winter', 'Spring', 'Summer', 'Fall'].map((item) => <option key={item}>{item}</option>)}
-                </select>
-              </label>
-              <label>Year
-                <input type="number" min="1900" max={new Date().getFullYear() + 1} value={year} onChange={(event) => setYear(Number(event.target.value))} />
-              </label>
-            </div>
-          )}
-          <label className="status-select">Add to
-            <select
-              value={String(status)}
-              onChange={(event) => setStatus(
-                session.media.statusOptions.find((item) => String(item.value) === event.target.value)?.value ?? event.target.value,
-              )}
-            >
-              {session.media.statusOptions.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}
-            </select>
-          </label>
-          <button className="primary-button discover-submit" disabled={busy}>
-            <Search aria-hidden="true" /> {busy ? 'Searching' : 'Search'}
-          </button>
-        </div>
-      </form>
+        {browsing && (
+          <DiscoverCatalog
+            title="Search results"
+            items={(results?.items ?? []).map(markAdded)}
+            pageInfo={results?.pageInfo}
+            loading={loading}
+            statusOptions={session.media.statusOptions}
+            onPageChange={(page) => void changePage(page)}
+            onDetails={(item) => void openDetails(item)}
+            onAdd={add}
+          />
+        )}
+      </div>
 
-      {results.length === 0 ? (
-        <div className="discover-empty">
-          <span className="orbit-mark" aria-hidden="true"><Search /></span>
-          <h2>Search the connected catalog</h2>
-          <p>Results will include the service’s current metadata and available cover art.</p>
-        </div>
-      ) : (
-        <div className="discover-results" aria-live="polite">
-          {results.map((show) => {
-            const isAdded = added.has(String(show.id));
-            return (
-              <article className="discover-result" key={String(show.id)}>
-                {show.image || show.image_thumb ? (
-                  <img src={show.image || show.image_thumb} alt={`Cover for ${show.title}`} />
-                ) : <div className="result-placeholder">{show.title.slice(0, 2).toUpperCase()}</div>}
-                <div>
-                  <h2>{show.title}</h2>
-                  <p>{show.total || '?'} entries · {show.status || 'Status unavailable'}</p>
-                </div>
-                <button className={isAdded ? 'secondary-button success' : 'primary-button'} disabled={busy || isAdded} onClick={() => add(show)}>
-                  {isAdded ? <Check aria-hidden="true" /> : <Plus aria-hidden="true" />}
-                  {isAdded ? 'Added' : 'Add'}
-                </button>
-              </article>
-            );
-          })}
-        </div>
+      {selected && createPortal(
+        <DiscoverDetailsDrawer
+          bridge={bridge}
+          item={markAdded(selected)}
+          loading={detailsLoading}
+          statusOptions={session.media.statusOptions}
+          onAdd={add}
+          onClose={() => setSelected(null)}
+        />,
+        document.body,
       )}
     </section>
   );

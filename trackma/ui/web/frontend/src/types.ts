@@ -94,3 +94,104 @@ export interface ShowDetails {
   show: MediaShow;
   details: Record<string, unknown>;
 }
+
+export interface DiscoverOption {
+  value: string;
+  label: string;
+  group?: string;
+}
+
+export interface CatalogTag {
+  name: string;
+  rank?: number;
+}
+
+export interface CatalogMetadata {
+  titles?: Record<string, string | null>;
+  description?: string | null;
+  genres?: string[];
+  tags?: CatalogTag[];
+  studios?: string[];
+  format?: string | null;
+  status?: string | null;
+  averageScore?: number | null;
+  meanScore?: number | null;
+  popularity?: number | null;
+  favourites?: number | null;
+  duration?: number | null;
+  season?: string | null;
+  seasonYear?: number | null;
+  source?: string | null;
+  countryOfOrigin?: string | null;
+  nextAiringEpisode?: {
+    episode?: number;
+    airingAt?: number;
+    timeUntilAiring?: number;
+  } | null;
+  externalLinks?: Array<{ site?: string; url?: string; type?: string }>;
+  coverColor?: string | null;
+  rank?: number;
+}
+
+export interface DiscoverItem {
+  show: MediaShow;
+  metadata: CatalogMetadata;
+  inLibrary: boolean;
+}
+
+export interface DiscoverCapabilities {
+  mode: 'full' | 'fallback';
+  filters: string[];
+  supportsHome: boolean;
+  supportsAdvanced?: boolean;
+  supportsPagination?: boolean;
+}
+
+export interface DiscoverSection {
+  id: string;
+  title: string;
+  preset: DiscoverFilters;
+  items: DiscoverItem[];
+}
+
+export interface DiscoverHome {
+  capabilities: DiscoverCapabilities;
+  sections: DiscoverSection[];
+}
+
+export interface DiscoverFilterOptions {
+  genres: DiscoverOption[];
+  tags: DiscoverOption[];
+  formats: DiscoverOption[];
+  statuses: DiscoverOption[];
+  countries: DiscoverOption[];
+  sources: DiscoverOption[];
+  streaming: DiscoverOption[];
+  sorts: DiscoverOption[];
+}
+
+export interface DiscoverFilters {
+  search?: string;
+  genres?: string[];
+  tags?: string[];
+  year?: number;
+  season?: string;
+  formats?: string[];
+  statuses?: string[];
+  country?: string;
+  source?: string;
+  streaming?: string;
+  sort?: string;
+}
+
+export interface DiscoverPageInfo {
+  currentPage: number;
+  lastPage: number;
+  total: number;
+  hasNextPage: boolean;
+}
+
+export interface DiscoverResults {
+  items: DiscoverItem[];
+  pageInfo: DiscoverPageInfo;
+}

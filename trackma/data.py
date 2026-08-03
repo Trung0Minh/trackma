@@ -251,6 +251,24 @@ class Data:
 
         raise utils.DataError('No results.')
 
+    def discover_home(self):
+        try:
+            return self.api.discover_home()
+        finally:
+            self.api.logout()
+
+    def discover_options(self):
+        try:
+            return self.api.discover_options()
+        finally:
+            self.api.logout()
+
+    def discover_browse(self, filters, page=1, per_page=24):
+        try:
+            return self.api.discover_browse(filters, page=page, per_page=per_page)
+        finally:
+            self.api.logout()
+
     def queue_add(self, show):
         """
         Queues a show add

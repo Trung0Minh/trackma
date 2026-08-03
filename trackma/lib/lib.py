@@ -150,6 +150,58 @@ class lib:
         """
         raise NotImplementedError
 
+    def discover_home(self):
+        """Return browse previews when the provider exposes a catalog feed."""
+        methods = self.media_info().get('search_methods', [utils.SearchMethod.KW])
+        filters = ['search']
+        if utils.SearchMethod.SEASON in methods:
+            filters.extend(['year', 'season'])
+        return {
+            'capabilities': {
+                'mode': 'fallback',
+                'filters': filters,
+                'supportsHome': False,
+                'supportsAdvanced': False,
+                'supportsPagination': False,
+            },
+            'sections': [],
+        }
+
+    def discover_options(self):
+        """Return an empty option set for providers without browse metadata."""
+        return {
+            'genres': [],
+            'tags': [],
+            'formats': [],
+            'statuses': [],
+            'countries': [],
+            'sources': [],
+            'streaming': [],
+            'sorts': [],
+        }
+
+    def discover_browse(self, filters, page=1, per_page=24):
+        """Adapt the existing keyword/season search to the browse contract."""
+        del page, per_page
+        query = str(filters.get('search', '')).strip()
+        season = filters.get('season')
+        year = filters.get('year')
+        if query:
+            items = self.search(query, utils.SearchMethod.KW)
+        elif season and year and utils.SearchMethod.SEASON in self.media_info().get('search_methods', []):
+            items = self.search((utils.Season.find(season), int(year)), utils.SearchMethod.SEASON)
+        else:
+            items = []
+        return {
+            'items': items or [],
+            'pageInfo': {
+                'currentPage': 1,
+                'lastPage': 1,
+                'total': len(items or []),
+                'hasNextPage': False,
+            },
+        }
+
     def request_info(self, items):
         # Request detailed information for requested shows
         raise NotImplementedError

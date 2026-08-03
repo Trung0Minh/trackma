@@ -10,8 +10,8 @@ test('library, discover, and settings remain usable', async ({ page }) => {
   await expect(page.getByRole('tab', { name: /Watching/ })).toHaveAttribute('aria-selected', 'true');
 
   await expect(page.getByRole('img', { name: /Spy x Family episode progress/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open Spy x Family on AniList' })).toBeVisible();
   await page.getByRole('button', { name: 'Open Spy x Family', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open Spy x Family on AniList' })).toBeVisible();
   await page.getByRole('button', { name: 'Torrent' }).click();
   const torrentDialog = page.getByRole('dialog', { name: 'Find a release' });
   await expect(torrentDialog).toBeVisible();
@@ -32,9 +32,28 @@ test('library, discover, and settings remain usable', async ({ page }) => {
   await page.getByRole('button', { name: 'Close', exact: true }).click();
 
   await page.getByRole('button', { name: 'Discover' }).click();
-  await page.getByRole('searchbox', { name: 'Search remote catalog' }).fill('Spy');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Spy x Family' })).toBeVisible();
+  const yearOptionColors = await page.getByLabel('Year').locator('option').first().evaluate((option) => {
+    const style = getComputedStyle(option);
+    return { color: style.color, background: style.backgroundColor };
+  });
+  expect(yearOptionColors.color).not.toBe(yearOptionColors.background);
+  expect(yearOptionColors.background).not.toBe('rgba(0, 0, 0, 0)');
+  await page.getByRole('searchbox', { name: 'Search catalog' }).fill('Spy');
+  await expect(page.getByRole('heading', { name: 'Search results' })).toBeVisible();
+  const discoverRegion = page.getByRole('region', { name: 'Browse anime' });
+  const detailsButton = page.getByRole('button', { name: 'Open details for Spy x Family' });
+  await expect(detailsButton).toBeVisible();
+  await expect(discoverRegion).toHaveCSS('transform', 'none');
+  await detailsButton.scrollIntoViewIfNeeded();
+  const layoutBeforeDetails = await discoverRegion.boundingBox();
+  await detailsButton.click();
+  const catalogDetails = page.getByRole('dialog');
+  await expect(catalogDetails).toHaveCSS('background-color', 'rgb(11, 22, 34)');
+  expect(await catalogDetails.evaluate((drawer) => getComputedStyle(drawer.parentElement!).getPropertyValue('--discover-blue').trim())).toBe('#f05c5b');
+  await expect(catalogDetails).toContainText('Summer 2026');
+  await expect(catalogDetails).toContainText('Manga');
+  expect(await discoverRegion.boundingBox()).toEqual(layoutBeforeDetails);
+  await catalogDetails.getByRole('button', { name: 'Close catalog details' }).click();
 
   await page.getByRole('button', { name: 'Settings' }).click();
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();

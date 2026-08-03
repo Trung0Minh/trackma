@@ -21,7 +21,7 @@ describe('App', () => {
     expect(screen.queryByText('Progress')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Discover' }));
-    expect(await screen.findByRole('heading', { name: 'Find something worth your time' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Browse anime' })).toBeInTheDocument();
   });
 
   it('allows an existing account to be edited from the account menu', async () => {

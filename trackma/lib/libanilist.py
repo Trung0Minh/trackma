@@ -139,6 +139,46 @@ class libanilist(lib):
     _client_secret = "9Hl31gyz2q9xMhhJwLKRA8DAn0pXl9sOHFf6I1YO"
     user_agent = 'Trackma/{}'.format(utils.VERSION)
 
+    discover_sorts = {
+        'relevance': 'SEARCH_MATCH',
+        'popularity': 'POPULARITY_DESC',
+        'trending': 'TRENDING_DESC',
+        'score': 'SCORE_DESC',
+        'favorites': 'FAVOURITES_DESC',
+        'newest': 'START_DATE_DESC',
+        'oldest': 'START_DATE',
+        'title': 'TITLE_ROMAJI',
+    }
+
+    discover_media_fields = '''
+      id
+      title { userPreferred romaji english native }
+      coverImage { large extraLarge color }
+      format
+      averageScore
+      meanScore
+      popularity
+      favourites
+      chapters
+      episodes
+      duration
+      status
+      source
+      countryOfOrigin
+      startDate { year month day }
+      endDate { year month day }
+      siteUrl
+      description
+      genres
+      synonyms
+      studios(sort: NAME, isMain: true) { nodes { name } }
+      seasonYear
+      season
+      nextAiringEpisode { episode airingAt timeUntilAiring }
+      tags { name rank isMediaSpoiler }
+      externalLinks { site url type }
+    '''
+
     def __init__(self, messenger, account, userconfig):
         """Initializes the API"""
         super(libanilist, self).__init__(messenger, account, userconfig)
@@ -161,6 +201,7 @@ class libanilist(lib):
 
         self.opener = urllib.request.build_opener()
         self.opener.addheaders = [('User-agent', self.user_agent)]
+        self._discover_options_cache = {}
 
     def _raw_request(self, method, url, get=None, post=None, jsonpost=None, auth=False):
         if get:
@@ -389,6 +430,240 @@ fragment mediaListEntry on MediaList {
         variables = {'id': item['my_id']}
         self._request(query, variables)
 
+    @staticmethod
+    def _season_for_date(value):
+        if value.month <= 3:
+            return 'WINTER', value.year
+        if value.month <= 6:
+            return 'SPRING', value.year
+        if value.month <= 9:
+            return 'SUMMER', value.year
+        return 'FALL', value.year
+
+    @classmethod
+    def _next_season(cls, season, year):
+        seasons = ['WINTER', 'SPRING', 'SUMMER', 'FALL']
+        index = seasons.index(season)
+        if index == len(seasons) - 1:
+            return seasons[0], year + 1
+        return seasons[index + 1], year
+
+    def _discover_capabilities(self):
+        if self.mediatype == 'anime':
+            filters = [
+                'search', 'genres', 'tags', 'year', 'season', 'formats',
+                'statuses', 'country', 'source', 'streaming', 'sort',
+            ]
+        else:
+            filters = [
+                'search', 'genres', 'tags', 'year', 'formats', 'statuses',
+                'country', 'source', 'sort',
+            ]
+        return {
+            'mode': 'full',
+            'filters': filters,
+            'supportsHome': True,
+            'supportsAdvanced': True,
+            'supportsPagination': True,
+        }
+
+    def _parse_catalog_media(self, item, rank=None):
+        show = self._parse_info(item)
+        show['_catalog'] = {
+            'titles': item.get('title') or {},
+            'description': item.get('description'),
+            'genres': item.get('genres') or [],
+            'tags': [
+                {'name': tag['name'], 'rank': tag.get('rank')}
+                for tag in item.get('tags') or []
+                if not tag.get('isMediaSpoiler')
+            ],
+            'studios': [studio['name'] for studio in item.get('studios', {}).get('nodes', [])],
+            'format': item.get('format'),
+            'status': item.get('status'),
+            'averageScore': item.get('averageScore'),
+            'meanScore': item.get('meanScore'),
+            'popularity': item.get('popularity'),
+            'favourites': item.get('favourites'),
+            'duration': item.get('duration'),
+            'season': item.get('season'),
+            'seasonYear': item.get('seasonYear'),
+            'source': item.get('source'),
+            'countryOfOrigin': item.get('countryOfOrigin'),
+            'nextAiringEpisode': item.get('nextAiringEpisode'),
+            'externalLinks': item.get('externalLinks') or [],
+            'coverColor': item.get('coverImage', {}).get('color'),
+        }
+        if rank is not None:
+            show['_catalog']['rank'] = rank
+        return show
+
+    def discover_home(self):
+        self.check_credentials()
+        current_season, current_year = self._season_for_date(datetime.date.today())
+        next_season, next_year = self._next_season(current_season, current_year)
+        variables = {
+            'type': self.mediatype.upper(),
+            'currentSeason': current_season,
+            'currentYear': current_year,
+            'nextSeason': next_season,
+            'nextYear': next_year,
+        }
+        if self.mediatype == 'anime':
+            pages = '''
+  trending: Page(page: 1, perPage: 6) { media(type: $type, sort: TRENDING_DESC) { %s } }
+  popularSeason: Page(page: 1, perPage: 6) { media(type: $type, season: $currentSeason, seasonYear: $currentYear, sort: POPULARITY_DESC) { %s } }
+  upcomingSeason: Page(page: 1, perPage: 6) { media(type: $type, season: $nextSeason, seasonYear: $nextYear, sort: POPULARITY_DESC) { %s } }
+  popular: Page(page: 1, perPage: 6) { media(type: $type, sort: POPULARITY_DESC) { %s } }
+  top: Page(page: 1, perPage: 10) { media(type: $type, sort: SCORE_DESC) { %s } }
+''' % ((self.discover_media_fields,) * 5)
+            definitions = '$type: MediaType, $currentSeason: MediaSeason, $currentYear: Int, $nextSeason: MediaSeason, $nextYear: Int'
+            section_specs = [
+                ('trending', 'Trending now', 'trending', {'sort': 'trending'}),
+                ('popular-season', 'Popular this season', 'popularSeason', {'season': current_season, 'year': current_year, 'sort': 'popularity'}),
+                ('upcoming-season', 'Upcoming next season', 'upcomingSeason', {'season': next_season, 'year': next_year, 'sort': 'popularity'}),
+                ('popular', 'All time popular', 'popular', {'sort': 'popularity'}),
+                ('top', 'Top 100 anime', 'top', {'sort': 'score'}),
+            ]
+        else:
+            pages = '''
+  trending: Page(page: 1, perPage: 6) { media(type: $type, sort: TRENDING_DESC) { %s } }
+  popular: Page(page: 1, perPage: 6) { media(type: $type, sort: POPULARITY_DESC) { %s } }
+  popularManhwa: Page(page: 1, perPage: 6) { media(type: $type, countryOfOrigin: "KR", sort: POPULARITY_DESC) { %s } }
+  top: Page(page: 1, perPage: 10) { media(type: $type, sort: SCORE_DESC) { %s } }
+''' % ((self.discover_media_fields,) * 4)
+            definitions = '$type: MediaType'
+            variables = {'type': self.mediatype.upper()}
+            section_specs = [
+                ('trending', 'Trending now', 'trending', {'sort': 'trending'}),
+                ('popular', 'All time popular', 'popular', {'sort': 'popularity'}),
+                ('popular-manhwa', 'Popular manhwa', 'popularManhwa', {'country': 'KR', 'sort': 'popularity'}),
+                ('top', 'Top 100 manga', 'top', {'sort': 'score'}),
+            ]
+        data = self._request('query (%s) {%s}' % (definitions, pages), variables)['data']
+        sections = []
+        for section_id, title, alias, preset in section_specs:
+            media = data.get(alias, {}).get('media', [])
+            sections.append({
+                'id': section_id,
+                'title': title,
+                'preset': preset,
+                'items': [
+                    self._parse_catalog_media(item, index if section_id == 'top' else None)
+                    for index, item in enumerate(media, start=1)
+                ],
+            })
+        return {'capabilities': self._discover_capabilities(), 'sections': sections}
+
+    def discover_options(self):
+        cached = self._discover_options_cache.get(self.mediatype)
+        if cached:
+            return cached
+        self.check_credentials()
+        query = '{ GenreCollection MediaTagCollection { name category isAdult } }'
+        data = self._request(query)['data']
+        formats = (
+            ['TV', 'TV_SHORT', 'MOVIE', 'SPECIAL', 'OVA', 'ONA', 'MUSIC']
+            if self.mediatype == 'anime'
+            else ['MANGA', 'NOVEL', 'ONE_SHOT']
+        )
+        statuses = (
+            ['RELEASING', 'FINISHED', 'NOT_YET_RELEASED', 'CANCELLED']
+            if self.mediatype == 'anime'
+            else ['RELEASING', 'FINISHED', 'NOT_YET_RELEASED', 'CANCELLED', 'HIATUS']
+        )
+        label = lambda value: value.replace('_', ' ').title()
+        result = {
+            'genres': [{'value': value, 'label': value} for value in data.get('GenreCollection', [])],
+            'tags': [
+                {'value': item['name'], 'label': item['name'], 'group': item.get('category') or 'Other'}
+                for item in data.get('MediaTagCollection', [])
+                if not item.get('isAdult')
+            ],
+            'formats': [{'value': value, 'label': label(value)} for value in formats],
+            'statuses': [{'value': value, 'label': label(value)} for value in statuses],
+            'countries': [
+                {'value': 'JP', 'label': 'Japan'},
+                {'value': 'KR', 'label': 'South Korea'},
+                {'value': 'CN', 'label': 'China'},
+                {'value': 'TW', 'label': 'Taiwan'},
+            ],
+            'sources': [
+                {'value': value, 'label': label(value)}
+                for value in ['ORIGINAL', 'MANGA', 'LIGHT_NOVEL', 'VISUAL_NOVEL', 'VIDEO_GAME', 'NOVEL', 'DOUJINSHI', 'ANIME', 'WEB_NOVEL', 'LIVE_ACTION', 'GAME', 'OTHER']
+            ],
+            'streaming': [
+                {'value': 'Crunchyroll', 'label': 'Crunchyroll'},
+                {'value': 'Netflix', 'label': 'Netflix'},
+                {'value': 'Hulu', 'label': 'Hulu'},
+                {'value': 'HIDIVE', 'label': 'HIDIVE'},
+                {'value': 'Amazon', 'label': 'Amazon Prime Video'},
+                {'value': 'Disney Plus', 'label': 'Disney+'},
+                {'value': 'YouTube', 'label': 'YouTube'},
+            ] if self.mediatype == 'anime' else [],
+            'sorts': [
+                {'value': 'relevance', 'label': 'Relevance'},
+                {'value': 'popularity', 'label': 'Popularity'},
+                {'value': 'trending', 'label': 'Trending'},
+                {'value': 'score', 'label': 'Average score'},
+                {'value': 'favorites', 'label': 'Favorites'},
+                {'value': 'newest', 'label': 'Newest'},
+                {'value': 'oldest', 'label': 'Oldest'},
+                {'value': 'title', 'label': 'Title A-Z'},
+            ],
+        }
+        self._discover_options_cache[self.mediatype] = result
+        return result
+
+    def discover_browse(self, filters, page=1, per_page=24):
+        self.check_credentials()
+        definitions = ['$page: Int', '$perPage: Int', '$type: MediaType']
+        arguments = ['type: $type']
+        variables = {'page': page, 'perPage': per_page, 'type': self.mediatype.upper()}
+        specs = [
+            ('search', 'String', 'search: $search', lambda value: str(value).strip()),
+            ('genres', '[String]', 'genre_in: $genres', list),
+            ('tags', '[String]', 'tag_in: $tags', list),
+            ('year', 'String', 'startDate_like: $startDate', lambda value: '%s%%' % int(value), 'startDate'),
+            ('season', 'MediaSeason', 'season: $season', str),
+            ('formats', '[MediaFormat]', 'format_in: $formats', list),
+            ('statuses', '[MediaStatus]', 'status_in: $statuses', list),
+            ('country', 'CountryCode', 'countryOfOrigin: $country', str),
+            ('source', '[MediaSource]', 'source_in: $sources', lambda value: [str(value)], 'sources'),
+            ('streaming', '[String]', 'licensedBy_in: $licensedBy', lambda value: [str(value)], 'licensedBy'),
+        ]
+        for spec in specs:
+            filter_name, graphql_type, argument, convert, *variable_override = spec
+            value = filters.get(filter_name)
+            if value in (None, '', []):
+                continue
+            variable_name = variable_override[0] if variable_override else filter_name
+            definitions.append('$%s: %s' % (variable_name, graphql_type))
+            arguments.append(argument)
+            variables[variable_name] = convert(value)
+        sort_name = str(filters.get('sort') or ('relevance' if variables.get('search') else 'popularity'))
+        if sort_name == 'relevance' and not variables.get('search'):
+            sort_name = 'popularity'
+        variables['sort'] = [self.discover_sorts.get(sort_name, 'POPULARITY_DESC')]
+        definitions.append('$sort: [MediaSort]')
+        arguments.append('sort: $sort')
+        query = '''query (%s) {
+  Page(page: $page, perPage: $perPage) {
+    pageInfo { currentPage lastPage total hasNextPage }
+    media(%s) { %s }
+  }
+}''' % (', '.join(definitions), ', '.join(arguments), self.discover_media_fields)
+        page_data = self._request(query, variables)['data']['Page']
+        return {
+            'items': [self._parse_catalog_media(item) for item in page_data.get('media', [])],
+            'pageInfo': page_data.get('pageInfo') or {
+                'currentPage': page,
+                'lastPage': page,
+                'total': 0,
+                'hasNextPage': False,
+            },
+        }
+
     def search(self, criteria, method):
         self.check_credentials()
         self.msg.info("Searching for {}...".format(criteria))
@@ -440,30 +715,14 @@ fragment mediaListEntry on MediaList {
 
         query = '''query ($id: Int!, $type: MediaType) {
   Media(id: $id, type: $type) {
-      id
-      title { userPreferred romaji english native }
-      coverImage { large extraLarge }
-      format
-      averageScore
-      meanScore
-      chapters episodes
-      status
-      startDate { year month day }
-      endDate { year month day }
-      siteUrl
-      description
-      genres
-      synonyms
-      studios(sort: NAME, isMain: true) { nodes { name } }
-      seasonYear
-      season
+%s
   }
-}'''
+}''' % self.discover_media_fields
 
         for show in itemlist:
             variables = {'id': show['id'], 'type': self.mediatype.upper()}
             data = self._request(query, variables)['data']['Media']
-            infolist.append(self._parse_info(data))
+            infolist.append(self._parse_catalog_media(data))
 
         self._emit_signal('show_info_changed', infolist)
         return infolist
