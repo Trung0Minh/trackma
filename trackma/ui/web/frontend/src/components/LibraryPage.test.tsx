@@ -81,7 +81,7 @@ describe('LibraryPage', () => {
     expect(screen.queryByText('Pluto')).not.toBeInTheDocument();
   });
 
-  it('opens the show AniList page from the card action', async () => {
+  it('plays the next episode from the card action', async () => {
     const user = userEvent.setup();
     const onCommand = vi.fn();
     render(
@@ -94,9 +94,9 @@ describe('LibraryPage', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Open Frieren on AniList' }));
+    await user.click(screen.getByRole('button', { name: 'Play next episode of Frieren' }));
 
-    expect(onCommand).toHaveBeenCalledWith('openExternal', session.library.shows[0]);
+    expect(onCommand).toHaveBeenCalledWith('play', session.library.shows[0]);
   });
 
   it('shows the numeric backend no-video state without treating a null timer as active', () => {
@@ -128,5 +128,19 @@ describe('LibraryPage', () => {
     expect(progress.querySelector('.aired-progress')).toHaveStyle({ width: '71.42857142857143%' });
     expect(progress.querySelector('.watched-progress')).toHaveStyle({ width: '42.857142857142854%' });
     expect(progress.querySelectorAll('.local-episode-progress')).toHaveLength(2);
+  });
+
+  it('shows watched, aired, and downloaded episodes in table view', () => {
+    render(
+      <LibraryPage
+        session={session}
+        viewMode="table"
+        onViewModeChange={vi.fn()}
+        onSelect={vi.fn()}
+        onCommand={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText('Frieren episode progress: 12 watched, 20 aired, 2 downloaded, 28 total')).toBeInTheDocument();
   });
 });

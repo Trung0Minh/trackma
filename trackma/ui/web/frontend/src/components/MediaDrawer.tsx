@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   Download,
+  ExternalLink,
   FolderOpen,
   Minus,
   Play,
@@ -23,9 +24,17 @@ interface MediaDrawerProps {
   onMessage(message: string): void;
 }
 
+function dateInputValue(value: unknown) {
+  if (!value) return '';
+  const normalized = String(value);
+  return /^\d{4}-\d{2}-\d{2}/.test(normalized) ? normalized.slice(0, 10) : '';
+}
+
+function sameValue(left: unknown, right: unknown) {
+  return String(left ?? '') === String(right ?? '');
+}
 
 export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessage }: MediaDrawerProps) {
-  const [details, setDetails] = useState<Record<string, unknown>>({});
   const [draft, setDraft] = useState(show);
   const [alternateTitle, setAlternateTitle] = useState(session.library.alternateTitles[String(show.id)] ?? '');
   const [busy, setBusy] = useState(false);
@@ -35,8 +44,8 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
   useEffect(() => {
     setDraft(show);
     setAlternateTitle(session.library.alternateTitles[String(show.id)] ?? '');
+    setConfirmDelete(false);
     bridge.call<ShowDetails>('show.details', { showId: show.id }).then((result) => {
-      setDetails(result.details ?? {});
       setDraft(result.show);
     });
   }, [bridge, session.library.alternateTitles, show]);
@@ -44,26 +53,31 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
   async function save() {
     setBusy(true);
     try {
-      await bridge.call('show.update', {
-        showId: show.id,
-        patch: {
-          progress: Number(draft.my_progress),
-          score: Number(draft.my_score),
-          status: draft.my_status,
-          rewatches: Number(draft.my_rewatches ?? 0),
-          notes: draft.my_notes ?? '',
-          tags: draft.my_tags ?? '',
-          ...(session.media.can_date ? {
-            startDate: draft.my_start_date || null,
-            finishDate: draft.my_finish_date || null,
-          } : {}),
-        },
-      });
+      const patch: Record<string, unknown> = {};
+      if (Number(draft.my_progress) !== Number(show.my_progress)) patch.progress = Number(draft.my_progress);
+      if (Number(draft.my_score) !== Number(show.my_score)) patch.score = Number(draft.my_score);
+      if (!sameValue(draft.my_status, show.my_status)) patch.status = draft.my_status;
+      if (Number(draft.my_rewatches ?? 0) !== Number(show.my_rewatches ?? 0)) patch.rewatches = Number(draft.my_rewatches ?? 0);
+      if (!sameValue(draft.my_notes, show.my_notes)) patch.notes = draft.my_notes ?? '';
+      if (!sameValue(draft.my_tags, show.my_tags)) patch.tags = draft.my_tags ?? '';
+      if (session.media.can_date) {
+        const draftStartDate = dateInputValue(draft.my_start_date);
+        const showStartDate = dateInputValue(show.my_start_date);
+        const draftFinishDate = dateInputValue(draft.my_finish_date);
+        const showFinishDate = dateInputValue(show.my_finish_date);
+        if (draftStartDate !== showStartDate) patch.startDate = draftStartDate || null;
+        if (draftFinishDate !== showFinishDate) patch.finishDate = draftFinishDate || null;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        await bridge.call('show.update', { showId: show.id, patch });
+      }
       if (alternateTitle !== (session.library.alternateTitles[String(show.id)] ?? '')) {
         await bridge.call('show.setAltTitle', { showId: show.id, title: alternateTitle });
       }
+      await bridge.call('sync.upload');
       await onChanged();
-      onMessage(`${show.title} updated`);
+      onMessage(`${show.title} saved to ${session.account.serviceName}`);
     } finally {
       setBusy(false);
     }
@@ -88,8 +102,6 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
     }
   }
 
-  const synopsis = String(details.synopsis ?? details.description ?? 'Extended metadata is not available for this title.');
-
   return (
     <div className="drawer-layer" role="presentation">
       <button className="drawer-scrim" aria-label="Close title details" onClick={onClose} />
@@ -100,10 +112,34 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
         </header>
 
         <div className="drawer-hero">
-          {show.image || show.image_thumb ? <img src={show.image || show.image_thumb} alt={`Cover for ${show.title}`} /> : <div className="poster-placeholder">{show.title.slice(0, 2)}</div>}
+          <div className="drawer-poster-stack">
+            {show.image || show.image_thumb ? <img src={show.image || show.image_thumb} alt={`Cover for ${show.title}`} /> : <div className="poster-placeholder">{show.title.slice(0, 2)}</div>}
+          </div>
           <div>
             <p>{show.type || session.api.mediatype}</p>
             <strong>{show.my_progress} / {show.total || '?'} complete</strong>
+            <div className="drawer-quick-actions" aria-label="Title shortcuts">
+              {session.account.api === 'anilist' && show.url && (
+                <button
+                  className="icon-button compact"
+                  onClick={() => bridge.call('native.openExternal', { url: show.url })}
+                  aria-label={`Open ${show.title} on AniList`}
+                  title="Open on AniList"
+                >
+                  <ExternalLink aria-hidden="true" />
+                </button>
+              )}
+              {session.media.can_delete !== false && (
+                <button
+                  className="icon-button compact danger-icon"
+                  onClick={() => setConfirmDelete(true)}
+                  aria-label={`Remove ${show.title}`}
+                  title="Remove"
+                >
+                  <Trash2 aria-hidden="true" />
+                </button>
+              )}
+            </div>
             <div className="drawer-actions">
               {session.media.can_play && <button className="primary-button" onClick={() => bridge.call('show.play', { showId: show.id, episode: 0 })}><Play aria-hidden="true" /> Play next</button>}
               <button className="secondary-button" onClick={() => bridge.call('show.openFolder', { showId: show.id })}><FolderOpen aria-hidden="true" /> Folder</button>
@@ -112,7 +148,15 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
           </div>
         </div>
 
-        <p className="synopsis">{synopsis}</p>
+        {confirmDelete && (
+          <section className="drawer-remove-confirm" aria-label="Confirm removal">
+            <p>Remove this title and queue the deletion?</p>
+            <div>
+              <button className="danger-button" onClick={remove} disabled={busy}>Remove title</button>
+              <button className="text-button" onClick={() => setConfirmDelete(false)}>Cancel</button>
+            </div>
+          </section>
+        )}
 
         <div className="drawer-form">
           <div className="field-pair">
@@ -135,10 +179,10 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
           </div>
           {session.media.can_date && <div className="field-pair">
             <label>Start date
-              <input type="date" value={draft.my_start_date ?? ''} onChange={(event) => setDraft({ ...draft, my_start_date: event.target.value || null })} />
+              <input type="date" value={dateInputValue(draft.my_start_date)} onChange={(event) => setDraft({ ...draft, my_start_date: event.target.value || null })} />
             </label>
             <label>Finish date
-              <input type="date" value={draft.my_finish_date ?? ''} onChange={(event) => setDraft({ ...draft, my_finish_date: event.target.value || null })} />
+              <input type="date" value={dateInputValue(draft.my_finish_date)} onChange={(event) => setDraft({ ...draft, my_finish_date: event.target.value || null })} />
             </label>
           </div>}
           <label>Alternative title<input value={alternateTitle} onChange={(event) => setAlternateTitle(event.target.value)} placeholder="Name used for local matching" /></label>
@@ -147,9 +191,6 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
           <button className="primary-button drawer-save" onClick={save} disabled={busy}><Save aria-hidden="true" /> Save changes</button>
         </div>
 
-        <section className="danger-zone">
-          {!confirmDelete ? <button className="text-button danger" onClick={() => setConfirmDelete(true)}><Trash2 aria-hidden="true" /> Remove from library</button> : <div><p>Remove this title and queue the deletion?</p><button className="danger-button" onClick={remove} disabled={busy}>Remove title</button><button className="text-button" onClick={() => setConfirmDelete(false)}>Cancel</button></div>}
-        </section>
       </aside>
       {torrentOpen && <TorrentDialog bridge={bridge} title={show.title} onClose={() => setTorrentOpen(false)} onDownloaded={onChanged} onMessage={onMessage} />}
     </div>

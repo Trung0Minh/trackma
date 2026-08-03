@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle2, LoaderCircle, RefreshCw, Timer, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, LoaderCircle, RefreshCw, Timer, X, XCircle } from 'lucide-react';
 
 import type { AppBridge, BridgeEvent } from './bridge';
 import { AccountPanel } from './components/AccountPanel';
@@ -21,6 +21,12 @@ interface AppProps {
   bridge: AppBridge;
 }
 
+type ToastTone = 'success' | 'info' | 'danger';
+
+interface ToastState {
+  message: string;
+  tone: ToastTone;
+}
 
 const refreshEvents = new Set([
   'episode_changed',
@@ -45,6 +51,16 @@ function playbackCountdown(tracker: Record<string, unknown> | null) {
   return { title: show[0]?.title ?? 'Detected title', episode: show[1], timer };
 }
 
+function toastToneFromMessageLevel(level: unknown): ToastTone {
+  if (typeof level !== 'number') return 'info';
+  return level >= 3 ? 'danger' : 'info';
+}
+
+function ToastIcon({ tone }: { tone: ToastTone }) {
+  if (tone === 'danger') return <XCircle aria-hidden="true" />;
+  if (tone === 'info') return <Info aria-hidden="true" />;
+  return <CheckCircle2 aria-hidden="true" />;
+}
 
 export default function App({ bridge }: AppProps) {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
@@ -56,13 +72,13 @@ export default function App({ bridge }: AppProps) {
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [syncConflict, setSyncConflict] = useState(false);
   const [trackerUpdate, setTrackerUpdate] = useState<{ show: MediaShow; episode: number } | null>(null);
   const [trackerAdd, setTrackerAdd] = useState<{ show: MediaShow; episode: number } | null>(null);
 
-  const showMessage = useCallback((message: string) => {
-    setToast(message);
+  const showMessage = useCallback((message: string, tone: ToastTone = 'success') => {
+    setToast({ message, tone });
     window.setTimeout(() => setToast(null), 3200);
   }, []);
 
@@ -117,8 +133,8 @@ export default function App({ bridge }: AppProps) {
       } : current);
     }
     if (event.name === 'message') {
-      const payload = event.payload as { message?: string };
-      if (payload.message) showMessage(payload.message);
+      const payload = event.payload as { level?: unknown; message?: string };
+      if (payload.message) showMessage(payload.message, toastToneFromMessageLevel(payload.level));
     }
     if (event.name === 'prompt_for_update') {
       const [show, episode] = event.payload as [MediaShow, number];
@@ -267,7 +283,7 @@ export default function App({ bridge }: AppProps) {
         </div>
       )}
       {busy && <div className="busy-indicator" role="status"><RefreshCw /> Working</div>}
-      {toast && <div className="toast" role="status"><CheckCircle2 /> {toast}</div>}
+      {toast && <div className={`toast ${toast.tone}`} role={toast.tone === 'danger' ? 'alert' : 'status'}><ToastIcon tone={toast.tone} /> {toast.message}</div>}
       {selected && <MediaDrawer bridge={bridge} session={session} show={selected} onClose={() => setSelected(null)} onChanged={refreshLibrary} onMessage={showMessage} />}
       {accountsOpen && <AccountPanel bridge={bridge} bootstrap={bootstrap} modal onClose={() => setAccountsOpen(false)} onSelect={openSession} onBootstrap={setBootstrap} onMessage={showMessage} />}
       {syncConflict && <div className="modal-layer"><button className="modal-scrim" aria-label="Cancel retrieve" onClick={() => setSyncConflict(false)} /><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="sync-conflict-title"><AlertTriangle /><h2 id="sync-conflict-title">Unsynced changes</h2><p>Send the current queue before retrieving, or discard it and replace the local list.</p><div><button className="primary-button" onClick={() => resolveSyncConflict('send')}>Send, then retrieve</button><button className="danger-button" onClick={() => resolveSyncConflict('discard')}>Discard and retrieve</button><button className="text-button" onClick={() => setSyncConflict(false)}>Cancel</button></div></section></div>}

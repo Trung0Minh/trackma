@@ -1104,7 +1104,7 @@ class Engine:
         try:
             filename = self.get_episode_path(show, playep)
         except utils.EngineError:
-            self.msg.info("Episode not found. Calling hooks...")
+            self.msg.warn("Episode not found")
             self._emit_signal("episode_missing", show, playep)
             return []
 

@@ -58,4 +58,16 @@ describe('App', () => {
     expect(countdown).toHaveTextContent('Spy x Family · Episode 23');
     expect(countdown).toHaveTextContent('Update prompt in 37s');
   });
+
+  it('shows warning messages as danger toasts', async () => {
+    const bridge = new MockBridge();
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+
+    act(() => bridge.emit('message', { level: 5, message: 'Episode not found' }));
+
+    const toast = screen.getByRole('alert');
+    expect(toast).toHaveTextContent('Episode not found');
+    expect(toast).toHaveClass('danger');
+  });
 });

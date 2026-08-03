@@ -964,7 +964,7 @@ button:disabled {
   position: absolute;
   z-index: 2;
   bottom: 0;
-  height: 0.12rem;
+  height: 50%;
   background: var(--warning);
 }
 
@@ -1017,6 +1017,20 @@ th {
 
 td {
   font-size: 0.86rem;
+}
+
+.table-progress {
+  display: grid;
+  width: min(100%, 15rem);
+  gap: 0.42rem;
+  color: var(--muted);
+  font-family: 'Geist Mono', monospace;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.table-progress .progress-track {
+  margin-top: 0;
 }
 
 tbody tr:hover {
@@ -1261,11 +1275,58 @@ tbody tr:hover {
   margin-bottom: 1rem;
 }
 
+.drawer-poster-stack {
+  display: grid;
+  gap: 0.6rem;
+}
+
 .drawer-hero img,
 .drawer-hero .poster-placeholder {
   width: 8rem;
   height: 10.7rem;
   border-radius: var(--radius-md);
+}
+
+.drawer-quick-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.danger-icon {
+  color: var(--danger);
+}
+
+.danger-icon:hover {
+  color: white;
+  background: var(--danger);
+  border-color: transparent;
+}
+
+.drawer-remove-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
+  border: 0.0625rem solid color-mix(in srgb, var(--danger) 36%, var(--border));
+  border-radius: var(--radius-sm);
+}
+
+.drawer-remove-confirm p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.drawer-remove-confirm > div {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .drawer-hero p {
@@ -1350,10 +1411,6 @@ tbody tr:hover {
 
 .drawer-save {
   align-self: flex-end;
-}
-
-.danger-zone {
-  border-top: 0.0625rem solid var(--border);
 }
 
 .input-action {
@@ -1618,16 +1675,6 @@ tbody tr:hover {
   margin: 1rem 0;
   border: 0;
   border-top: 0.0625rem solid var(--border);
-}
-
-.danger-zone {
-  margin-top: 1rem;
-  padding-top: 1rem;
-}
-
-.danger-zone > div p {
-  margin-bottom: 0.6rem;
-  color: var(--muted);
 }
 
 .settings-layout {
@@ -2061,6 +2108,16 @@ tbody tr:hover {
   color: var(--success);
 }
 
+.toast.info {
+  color: var(--muted);
+}
+
+.toast.danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface-raised));
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--border-strong));
+}
+
 .toast svg,
 .busy-indicator svg {
   width: 1rem;
@@ -2148,6 +2205,8 @@ tbody tr:hover {
   .drawer-hero img,
   .drawer-hero .poster-placeholder { width: 6.5rem; height: 8.7rem; }
   .drawer-actions { flex-wrap: wrap; }
+  .drawer-remove-confirm { align-items: stretch; flex-direction: column; }
+  .drawer-remove-confirm > div { justify-content: flex-end; }
   .field-pair { flex-direction: column; }
   .torrent-layer { padding: 0.5rem; }
   .torrent-dialog { width: 100%; height: calc(100dvh - 1rem); padding: 0.85rem; border-radius: var(--radius-lg); }

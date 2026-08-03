@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ExternalLink,
   Grid2X2,
   List,
   Play,
@@ -36,6 +35,35 @@ function progressWidth(show: MediaShow) {
 function episodeWidth(value: number, total: number) {
   if (!total) return 0;
   return Math.min(100, Math.max(0, (value / total) * 100));
+}
+
+function EpisodeProgress({ show }: { show: MediaShow }) {
+  const localEpisodes = [...new Set(show.availableEpisodes ?? [])].filter(
+    (episode) => show.total > 0 && episode > 0 && episode <= show.total,
+  );
+
+  return (
+    <div
+      className="progress-track"
+      role="img"
+      aria-label={`${show.title} episode progress: ${show.my_progress} watched, ${show.airedEpisodes ?? 0} aired, ${localEpisodes.length} downloaded, ${show.total || 'unknown'} total`}
+      title={`Watched ${show.my_progress} · Aired ${show.airedEpisodes ?? 0} · Downloaded ${localEpisodes.length} · Total ${show.total || '?'}`}
+    >
+      <span className="aired-progress" aria-hidden="true" style={{ width: `${episodeWidth(show.airedEpisodes ?? 0, show.total)}%` }} />
+      <span className="watched-progress" aria-hidden="true" style={{ width: `${progressWidth(show)}%` }} />
+      {localEpisodes.map((episode) => (
+        <span
+          aria-hidden="true"
+          className="local-episode-progress"
+          key={episode}
+          style={{
+            left: `${episodeWidth(episode - 1, show.total)}%`,
+            width: `${100 / show.total}%`,
+          }}
+        />
+      ))}
+    </div>
+  );
 }
 
 function trackerSummary(tracker: Record<string, unknown> | null) {
@@ -213,35 +241,16 @@ export function LibraryPage({
                 <div className="card-footer">
                   <div className="progress-copy">
                     <span>{show.my_progress} / {show.total || '?'} {session.api.mediatype === 'manga' ? 'CH' : 'EP'}</span>
-                    <div
-                      className="progress-track"
-                      role="img"
-                      aria-label={`${show.title} episode progress: ${show.my_progress} watched, ${show.airedEpisodes ?? 0} aired, ${show.availableEpisodes?.length ?? 0} downloaded, ${show.total || 'unknown'} total`}
-                      title={`Watched ${show.my_progress} · Aired ${show.airedEpisodes ?? 0} · Downloaded ${show.availableEpisodes?.length ?? 0} · Total ${show.total || '?'}`}
-                    >
-                      <span className="aired-progress" aria-hidden="true" style={{ width: `${episodeWidth(show.airedEpisodes ?? 0, show.total)}%` }} />
-                      <span className="watched-progress" aria-hidden="true" style={{ width: `${progressWidth(show)}%` }} />
-                      {show.total > 0 && [...new Set(show.availableEpisodes ?? [])].map((episode) => (
-                        episode > 0 && episode <= show.total ? <span
-                          aria-hidden="true"
-                          className="local-episode-progress"
-                          key={episode}
-                          style={{
-                            left: `${episodeWidth(episode - 1, show.total)}%`,
-                            width: `${100 / show.total}%`,
-                          }}
-                        /> : null
-                      ))}
-                    </div>
+                    <EpisodeProgress show={show} />
                   </div>
-                  {session.account.api === 'anilist' && show.url && (
+                  {session.media.can_play && (
                     <button
                       className="increment-button"
-                      aria-label={`Open ${show.title} on AniList`}
-                      title="Open on AniList"
-                      onClick={() => onCommand('openExternal', show)}
+                      aria-label={`Play next episode of ${show.title}`}
+                      title="Play next"
+                      onClick={() => onCommand('play', show)}
                     >
-                      <ExternalLink aria-hidden="true" />
+                      <Play aria-hidden="true" />
                     </button>
                   )}
                 </div>
@@ -259,7 +268,12 @@ export function LibraryPage({
               {filtered.map((show) => (
                 <tr key={String(show.id)} onDoubleClick={() => onSelect(show)}>
                   <td><button className="text-button" onClick={() => onSelect(show)}>{show.title}</button></td>
-                  <td>{show.my_progress} / {show.total || '?'}</td>
+                  <td>
+                    <div className="table-progress">
+                      <span>{show.my_progress} / {show.total || '?'} {session.api.mediatype === 'manga' ? 'CH' : 'EP'}</span>
+                      <EpisodeProgress show={show} />
+                    </div>
+                  </td>
                   <td>{show.my_score || '—'}</td>
                   <td>{session.media.statusOptions.find((item) => String(item.value) === String(show.my_status))?.label}</td>
                   <td>
