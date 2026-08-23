@@ -95,3 +95,32 @@ def test_qbittorrent_add_has_local_service_timeout(monkeypatch):
 
     assert client.add_magnet('magnet:?xt=test') is True
     assert captured['timeout'] == 3
+
+
+def test_qbittorrent_login_identifies_wrong_http_service(monkeypatch):
+    warnings = []
+
+    class Messenger:
+        def warn(self, message):
+            warnings.append(message)
+
+    class UnsupportedResponse:
+        status_code = 501
+        text = (
+            '<!DOCTYPE HTML><html><body><h1>Error response</h1>'
+            '<p>Unsupported method (POST).</p></body></html>'
+        )
+
+    client = QBitClient(messenger=Messenger())
+    monkeypatch.setattr(
+        client.session,
+        'post',
+        lambda _url, data, timeout: UnsupportedResponse(),
+    )
+
+    assert client.login(auto_launch=False) is False
+    assert warnings == [
+        'qBittorrent: localhost:8080 is not serving the qBittorrent Web API '
+        '(HTTP 501). Check that qBittorrent is running, Web UI is enabled, '
+        'and Trackma\'s host and port match its Web UI settings.'
+    ]

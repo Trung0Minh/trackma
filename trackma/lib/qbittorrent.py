@@ -7,6 +7,8 @@ class QBitClient:
     Handles communication with qBittorrent WebAPI.
     """
     def __init__(self, host="localhost", port=8080, username="admin", password="", messenger=None):
+        self.host = host
+        self.port = port
         self.base_url = f"http://{host}:{port}/api/v2"
         self.username = username
         self.password = password
@@ -31,7 +33,17 @@ class QBitClient:
                     return True
                 else:
                     if self.msg:
-                        self.msg.warn(f"qBittorrent: Login failed - {response.text}")
+                        if response.status_code == 501:
+                            self.msg.warn(
+                                f"qBittorrent: {self.host}:{self.port} is not serving the "
+                                "qBittorrent Web API (HTTP 501). Check that qBittorrent is "
+                                "running, Web UI is enabled, and Trackma's host and port "
+                                "match its Web UI settings."
+                            )
+                        else:
+                            self.msg.warn(
+                                f"qBittorrent: Login failed (HTTP {response.status_code})"
+                            )
                     return False
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 if auto_launch and attempt == 0:
