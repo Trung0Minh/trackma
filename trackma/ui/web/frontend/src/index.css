@@ -449,28 +449,6 @@ code,
   pointer-events: none;
 }
 
-.connection-state {
-  position: fixed;
-  z-index: 80;
-  bottom: max(1.25rem, env(safe-area-inset-bottom));
-  left: max(1.25rem, env(safe-area-inset-left));
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--muted);
-  font-size: 0.78rem;
-  white-space: nowrap;
-}
-
-.connection-state > span:first-child {
-  flex: 0 0 auto;
-  width: 0.45rem;
-  height: 0.45rem;
-  background: var(--success);
-  border-radius: 50%;
-  box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--success) 16%, transparent);
-}
-
 .tracker-countdown {
   position: fixed;
   z-index: 90;

@@ -277,8 +277,6 @@ export default function App({ bridge }: AppProps) {
         {page === 'discover' && <DiscoverPage bridge={bridge} session={session} initialQuery={trackerAdd?.show.title} trackerEpisode={trackerAdd?.episode} onAdd={addDiscovered} />}
         {page === 'settings' && <SettingsPage bridge={bridge} onSaved={showMessage} onThemeChange={setTheme} />}
       </main>
-
-      <div className="connection-state" role="status"><span aria-hidden="true" /><span>Engine connected</span></div>
       {countdown && (
         <div className="tracker-countdown" role="status" aria-label="Playback update countdown" aria-live="polite" aria-atomic="true">
           <span className="tracker-countdown-icon" aria-hidden="true"><Timer /></span>

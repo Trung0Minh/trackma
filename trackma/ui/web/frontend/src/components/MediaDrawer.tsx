@@ -8,6 +8,7 @@ import {
   Plus,
   Save,
   Trash2,
+  Users,
   X,
 } from 'lucide-react';
 
@@ -34,12 +35,19 @@ function sameValue(left: unknown, right: unknown) {
   return String(left ?? '') === String(right ?? '');
 }
 
+function aniListAnimeId(show: MediaShow) {
+  const match = show.url?.match(/anilist\.co\/anime\/(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
 export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessage }: MediaDrawerProps) {
   const [draft, setDraft] = useState(show);
   const [alternateTitle, setAlternateTitle] = useState(session.library.alternateTitles[String(show.id)] ?? '');
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [torrentOpen, setTorrentOpen] = useState(false);
+  const [keyframeBusy, setKeyframeBusy] = useState(false);
+  const keyframeAnimeId = session.account.api === 'anilist' ? aniListAnimeId(show) : null;
 
   useEffect(() => {
     setDraft(show);
@@ -102,6 +110,24 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
     }
   }
 
+  async function openKeyframeStaffList(anilistId: number) {
+    setKeyframeBusy(true);
+    let url = `https://keyframe-staff-list.com/search?q=${encodeURIComponent(show.title)}`;
+    try {
+      const result = await bridge.call<{ url: string }>('keyframe.staffList', { anilistId });
+      url = result.url;
+    } catch {
+      // Cloudflare may reject Trackma's server-side lookup; let the user's browser search instead.
+    }
+    try {
+      await bridge.call('native.openExternal', { url });
+    } catch (error) {
+      onMessage(error instanceof Error ? error.message : 'Could not open Keyframe Staff List');
+    } finally {
+      setKeyframeBusy(false);
+    }
+  }
+
   return (
     <div className="drawer-layer" role="presentation">
       <button className="drawer-scrim" aria-label="Close title details" onClick={onClose} />
@@ -127,6 +153,17 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
                   title="Open on AniList"
                 >
                   <ExternalLink aria-hidden="true" />
+                </button>
+              )}
+              {keyframeAnimeId !== null && (
+                <button
+                  className="icon-button compact"
+                  onClick={() => void openKeyframeStaffList(keyframeAnimeId)}
+                  aria-label={`Open ${show.title} on Keyframe Staff List`}
+                  title="Open on Keyframe Staff List"
+                  disabled={keyframeBusy}
+                >
+                  <Users aria-hidden="true" />
                 </button>
               )}
               {session.media.can_delete !== false && (

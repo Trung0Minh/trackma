@@ -12,6 +12,7 @@ test('library, discover, and settings remain usable', async ({ page }) => {
   await expect(page.getByRole('img', { name: /Spy x Family episode progress/ })).toBeVisible();
   await page.getByRole('button', { name: 'Open Spy x Family', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Open Spy x Family on AniList' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open Spy x Family on Keyframe Staff List' })).toBeVisible();
   await page.getByRole('button', { name: 'Torrent' }).click();
   const torrentDialog = page.getByRole('dialog', { name: 'Find a release' });
   await expect(torrentDialog).toBeVisible();
@@ -61,18 +62,8 @@ test('library, discover, and settings remain usable', async ({ page }) => {
 });
 
 
-test('connection label does not overlap the media selector', async ({ page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop');
-  await page.setViewportSize({ width: 1600, height: 900 });
+test('connection label is not shown when the engine is available', async ({ page }) => {
   await page.goto('/?mock=1');
 
-  const connectionLabel = page.getByText('Engine connected', { exact: true });
-  const mediaTypeSelect = page.getByRole('combobox', { name: 'Media type' });
-  await expect(connectionLabel).toBeVisible();
-  await expect(mediaTypeSelect).toBeVisible();
-  expect(await connectionLabel.evaluate((label, select) => {
-    const labelBounds = label.getBoundingClientRect();
-    const selectBounds = (select as HTMLElement).getBoundingClientRect();
-    return labelBounds.right <= selectBounds.left;
-  }, await mediaTypeSelect.elementHandle())).toBe(true);
+  await expect(page.getByText('Engine connected', { exact: true })).toHaveCount(0);
 });

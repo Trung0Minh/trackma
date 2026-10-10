@@ -402,6 +402,15 @@ export class MockBridge implements AppBridge {
       case 'accounts.purge':
         result = { purged: true };
         break;
+      case 'keyframe.staffList': {
+        const slugs: Record<string, string> = {
+          '140960': 'spy-x-family',
+          '154587': 'sousou-no-frieren',
+        };
+        const slug = slugs[String(payload.anilistId)] ?? String(payload.anilistId);
+        result = { url: `https://keyframe-staff-list.com/staff/${slug}` };
+        break;
+      }
       case 'native.openExternal':
         result = { opened: true };
         break;

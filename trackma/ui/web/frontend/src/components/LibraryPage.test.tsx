@@ -143,4 +143,48 @@ describe('LibraryPage', () => {
 
     expect(screen.getByLabelText('Frieren episode progress: 12 watched, 20 aired, 2 downloaded, 28 total')).toBeInTheDocument();
   });
+
+  it('brings shows with any episode available locally to the top', () => {
+    const localSession: SessionSnapshot = {
+      ...session,
+      library: {
+        ...session.library,
+        shows: [
+          {
+            id: 1,
+            title: 'Alpha Archive',
+            total: 12,
+            my_progress: 1,
+            my_score: 0,
+            my_status: 'CURRENT',
+            availableEpisodes: [],
+          },
+          {
+            id: 2,
+            title: 'False Memory',
+            total: 12,
+            my_progress: 3,
+            my_score: 0,
+            my_status: 'CURRENT',
+            availableEpisodes: [1, 2, 3],
+          },
+        ],
+      },
+    };
+
+    render(
+      <LibraryPage
+        session={localSession}
+        viewMode="grid"
+        onViewModeChange={vi.fn()}
+        onSelect={vi.fn()}
+        onCommand={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('article').map((article) => article.textContent)).toEqual([
+      expect.stringContaining('False Memory'),
+      expect.stringContaining('Alpha Archive'),
+    ]);
+  });
 });

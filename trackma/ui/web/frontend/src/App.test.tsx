@@ -15,8 +15,7 @@ describe('App', () => {
     const header = screen.getByRole('banner', { name: 'Application header' });
     expect(header).toContainElement(screen.getByRole('navigation', { name: 'Primary navigation' }));
     expect(header).toContainElement(screen.getByRole('button', { name: 'Manage accounts' }));
-    expect(header).not.toContainElement(screen.getByText('Engine connected'));
-    expect(screen.getByRole('status')).toHaveTextContent('Engine connected');
+    expect(screen.queryByText('Engine connected')).not.toBeInTheDocument();
     expect(screen.queryByText('Home')).not.toBeInTheDocument();
     expect(screen.queryByText('Progress')).not.toBeInTheDocument();
 

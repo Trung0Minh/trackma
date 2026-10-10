@@ -26,6 +26,11 @@ function sameStatus(left: StatusValue | 'all', right: StatusValue) {
 }
 
 
+function hasLocalEpisodes(show: MediaShow) {
+  return (show.availableEpisodes?.length ?? 0) > 0;
+}
+
+
 function progressWidth(show: MediaShow) {
   if (!show.total) return 0;
   return Math.min(100, Math.max(0, (show.my_progress / show.total) * 100));
@@ -111,15 +116,17 @@ export function LibraryPage({
   }, [session.library.shows]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
-    return session.library.shows.filter((show) => {
-      const matchesStatus = sameStatus(activeStatus, show.my_status);
-      const alternate = session.library.alternateTitles[String(show.id)] ?? '';
-      const matchesQuery =
-        !normalized ||
-        show.title.toLocaleLowerCase().includes(normalized) ||
-        alternate.toLocaleLowerCase().includes(normalized);
-      return matchesStatus && matchesQuery;
-    });
+    return session.library.shows
+      .filter((show) => {
+        const matchesStatus = sameStatus(activeStatus, show.my_status);
+        const alternate = session.library.alternateTitles[String(show.id)] ?? '';
+        const matchesQuery =
+          !normalized ||
+          show.title.toLocaleLowerCase().includes(normalized) ||
+          alternate.toLocaleLowerCase().includes(normalized);
+        return matchesStatus && matchesQuery;
+      })
+      .sort((left, right) => Number(hasLocalEpisodes(right)) - Number(hasLocalEpisodes(left)));
   }, [activeStatus, query, session.library]);
 
   return (

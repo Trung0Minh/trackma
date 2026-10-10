@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import datetime
+import json
+import urllib.error
+import urllib.parse
+import urllib.request
 import uuid
 from collections.abc import Callable
 from typing import Any, cast
@@ -16,6 +20,33 @@ from .contract import CommandError, normalize_json, public_account
 
 EventCallback = Callable[[str, Any], None]
 EngineFactory = Callable[..., Engine]
+KeyframeLookup = Callable[[int], str | None]
+
+
+def lookup_keyframe_staff_list(anilist_id: int) -> str | None:
+    url = (
+        "https://keyframe-staff-list.com/api/stafflists/check.php?id="
+        f"{urllib.parse.quote(str(anilist_id), safe='')}"
+    )
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": f"Trackma/{utils.VERSION}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            result = json.load(response)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        raise CommandError(
+            "EXTERNAL_SERVICE_ERROR",
+            "Keyframe Staff List lookup failed",
+        ) from error
+    if not isinstance(result, dict):
+        raise CommandError(
+            "EXTERNAL_SERVICE_ERROR",
+            "Keyframe Staff List returned an invalid response",
+        )
+    slug = result.get("uuid")
+    return slug if isinstance(slug, str) and slug.strip() else None
 
 
 class BackendController:
@@ -44,11 +75,13 @@ class BackendController:
         engine_factory: EngineFactory = Engine,
         event_callback: EventCallback | None = None,
         process_launcher: Callable[[list[str]], Any] = utils.spawn_process,
+        keyframe_lookup: KeyframeLookup = lookup_keyframe_staff_list,
     ) -> None:
         self.account_manager = account_manager or AccountManager()
         self.engine_factory = engine_factory
         self.event_callback = event_callback or (lambda _name, _payload: None)
         self.process_launcher = process_launcher
+        self.keyframe_lookup = keyframe_lookup
         self.engine: Engine | None = None
         self.active_account_id: int | None = None
         self._auth_sessions: dict[str, dict[str, Any]] = {}
@@ -79,6 +112,7 @@ class BackendController:
             "discover.details": self._discover_details,
             "discover.search": self._discover_search,
             "discover.add": self._discover_add,
+            "keyframe.staffList": self._keyframe_staff_list,
             "torrents.search": self._torrent_search,
             "torrents.details": self._torrent_details,
             "torrents.download": self._torrent_download,
@@ -358,6 +392,19 @@ class BackendController:
         if command:
             self.process_launcher(list(command))
         return {"launched": bool(command)}
+
+    def _keyframe_staff_list(self, payload: dict[str, Any]) -> dict[str, str]:
+        anilist_id = int(payload.get("anilistId", 0))
+        if anilist_id <= 0:
+            raise CommandError("INVALID_INPUT", "AniList ID must be a positive integer")
+        slug = self.keyframe_lookup(anilist_id)
+        if not slug:
+            raise CommandError(
+                "NOT_FOUND",
+                "No Keyframe Staff List page is available for this title",
+            )
+        safe_slug = urllib.parse.quote(slug.strip(), safe="-._~!")
+        return {"url": f"https://keyframe-staff-list.com/staff/{safe_slug}"}
 
     def _play_random(self, _payload: dict[str, Any]) -> dict[str, Any]:
         command = self._require_engine().play_random()

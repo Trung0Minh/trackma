@@ -220,6 +220,22 @@ def test_library_snapshot_separates_aired_and_downloaded_episodes():
     assert show["availableEpisodes"] == [1]
 
 
+def test_keyframe_staff_list_resolves_anilist_id_to_exact_show_page():
+    controller = BackendController(
+        account_manager=FakeAccountManager(),
+        engine_factory=FakeEngine,
+        keyframe_lookup=lambda anilist_id: (
+            "sousou-no-frieren" if anilist_id == 154587 else None
+        ),
+    )
+
+    result = controller.handle("keyframe.staffList", {"anilistId": 154587})
+
+    assert result == {
+        "url": "https://keyframe-staff-list.com/staff/sousou-no-frieren"
+    }
+
+
 def test_public_account_never_exposes_credentials_or_oauth_state():
     account = {
         "username": "mina",
