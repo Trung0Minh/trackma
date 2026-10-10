@@ -1,6 +1,6 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import App from './App';
 import { MockBridge } from './mockBridge';
@@ -57,6 +57,58 @@ describe('App', () => {
     const countdown = screen.getByRole('status', { name: 'Playback update countdown' });
     expect(countdown).toHaveTextContent('Spy x Family · Episode 23');
     expect(countdown).toHaveTextContent('Update prompt in 37s');
+  });
+
+  it('stacks watched episodes per show and applies the latest progress together', async () => {
+    const user = userEvent.setup();
+    const bridge = new MockBridge();
+    const call = vi.spyOn(bridge, 'call');
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+
+    act(() => {
+      bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 23]);
+      bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 24]);
+      bridge.emit('prompt_for_update', [{ id: 127230, title: 'Chainsaw Man' }, 9]);
+      bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 23]);
+    });
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    expect(screen.getByText('Mark Spy x Family episodes 23–24 as watched?')).toBeInTheDocument();
+    expect(screen.getByText('Set Chainsaw Man to episode 9?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Update progress' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(call.mock.calls.filter(([method]) => method === 'show.update')).toEqual([
+      ['show.update', { showId: 140960, patch: { progress: 24 } }],
+      ['show.update', { showId: 127230, patch: { progress: 9 } }],
+    ]);
+  });
+
+  it('keeps newer episodes received while an update is being saved', async () => {
+    const user = userEvent.setup();
+    const bridge = new MockBridge();
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+    let finishSave!: (value: unknown) => void;
+    const save = new Promise<unknown>((resolve) => { finishSave = resolve; });
+    vi.spyOn(bridge, 'call').mockImplementationOnce(() => save);
+    act(() => bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 23]));
+    await user.click(screen.getByRole('button', { name: 'Update progress' }));
+    act(() => bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 24]));
+    await act(async () => finishSave({}));
+    expect(screen.getByText('Set Spy x Family to episode 24?')).toBeInTheDocument();
+  });
+
+  it('keeps a failed update available to retry', async () => {
+    const user = userEvent.setup();
+    const bridge = new MockBridge();
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+    vi.spyOn(bridge, 'call').mockRejectedValueOnce(new Error('Save failed'));
+    act(() => bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, 23]));
+    await user.click(screen.getByRole('button', { name: 'Update progress' }));
+    expect(await screen.findByText('Save failed')).toBeInTheDocument();
+    expect(screen.getByText('Set Spy x Family to episode 23?')).toBeInTheDocument();
   });
 
   it('shows warning messages as danger toasts', async () => {

@@ -71,6 +71,7 @@ class TrackerBase(object):
         self.last_time = 0
         self.last_updated = False
         self.last_close_queue = None
+        self.pending_episodes = {}
         self.signals = {name: None for name in self.signals}
         self._tracker_args = (config, watch_dirs)
         self._thread = None
@@ -104,6 +105,11 @@ class TrackerBase(object):
     def update_list(self, tracker_list):
         self.list = tracker_list
         self.title_matcher = utils.TitleMatcher(tracker_list)
+        self.pending_episodes = {
+            show['id']: self.pending_episodes[show['id']]
+            for show in tracker_list[0].values()
+            if self.pending_episodes.get(show['id'], 0) > show['my_progress']
+        }
 
     def connect_signal(self, signal, callback):
         if signal not in self.signals:
@@ -150,6 +156,9 @@ class TrackerBase(object):
 
             def action(state=state):
                 if state == utils.Tracker.PLAYING:
+                    if self.config['tracker_update_prompt']:
+                        self.pending_episodes[show['id']] = max(
+                            episode, self.pending_episodes.get(show['id'], 0))
                     return self._emit_signal('update', show, episode)
                 elif state == utils.Tracker.NOT_FOUND:
                     return self._emit_signal('unrecognised', show, episode)
@@ -214,6 +223,9 @@ class TrackerBase(object):
                 self._emit_signal('playing', show['id'], True, episode)
                 # Check if we shouldn't update the show
                 expected_next_ep = show['my_progress'] + 1
+                if self.config['tracker_update_prompt']:
+                    expected_next_ep = max(
+                        show['my_progress'], self.pending_episodes.get(show['id'], 0)) + 1
                 if self.config['tracker_ignore_not_next'] and episode != expected_next_ep:
                     self.msg.warn(
                         'Not playing the next episode of {} (expected: {}, found: {}). Ignoring.'

@@ -74,7 +74,7 @@ export default function App({ bridge }: AppProps) {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [syncConflict, setSyncConflict] = useState(false);
-  const [trackerUpdate, setTrackerUpdate] = useState<{ show: MediaShow; episode: number } | null>(null);
+  const [trackerUpdates, setTrackerUpdates] = useState<{ show: MediaShow; firstEpisode: number; episode: number }[]>([]);
   const [trackerAdd, setTrackerAdd] = useState<{ show: MediaShow; episode: number } | null>(null);
 
   const showMessage = useCallback((message: string, tone: ToastTone = 'success') => {
@@ -88,6 +88,7 @@ export default function App({ bridge }: AppProps) {
     try {
       const next = await bridge.call<SessionSnapshot>('session.open', { accountId, remember });
       setSession(next);
+      setTrackerUpdates([]);
       setAccountsOpen(false);
       setPage('library');
     } catch (caught) {
@@ -138,7 +139,12 @@ export default function App({ bridge }: AppProps) {
     }
     if (event.name === 'prompt_for_update') {
       const [show, episode] = event.payload as [MediaShow, number];
-      setTrackerUpdate({ show, episode });
+      setTrackerUpdates((current) => {
+        const pending = current.find((item) => String(item.show.id) === String(show.id));
+        return pending
+          ? current.map((item) => item === pending ? { ...item, episode: Math.max(item.episode, episode) } : item)
+          : [...current, { show, firstEpisode: episode, episode }];
+      });
     }
     if (event.name === 'prompt_for_add') {
       const [show, episode] = event.payload as [MediaShow, number];
@@ -204,6 +210,7 @@ export default function App({ bridge }: AppProps) {
       const next = await bridge.call<SessionSnapshot>('session.switchMediaType', { mediaType });
       setSession(next);
       setSelected(null);
+      setTrackerUpdates([]);
     });
   }
 
@@ -219,13 +226,21 @@ export default function App({ bridge }: AppProps) {
   }
 
   async function applyTrackerUpdate() {
-    if (!trackerUpdate) return;
-    const request = trackerUpdate;
-    setTrackerUpdate(null);
+    if (!trackerUpdates.length || busy) return;
+    const requests = trackerUpdates;
     await run(async () => {
-      await bridge.call('show.update', { showId: request.show.id, patch: { progress: request.episode } });
+      for (const request of requests) {
+        const show = session?.library.shows.find((item) => String(item.id) === String(request.show.id));
+        if (!show || show.my_progress < request.episode) {
+          await bridge.call('show.update', { showId: request.show.id, patch: { progress: request.episode } });
+        }
+        setTrackerUpdates((current) => current.flatMap((item) => {
+          if (String(item.show.id) !== String(request.show.id)) return [item];
+          return item.episode > request.episode ? [{ ...item, firstEpisode: request.episode + 1 }] : [];
+        }));
+      }
       await refreshLibrary();
-    }, `${request.show.title} updated to episode ${request.episode}`);
+    }, 'Watched progress updated');
   }
 
   function changeViewMode(mode: 'grid' | 'table') {
@@ -278,7 +293,7 @@ export default function App({ bridge }: AppProps) {
       {selected && <MediaDrawer bridge={bridge} session={session} show={selected} onClose={() => setSelected(null)} onChanged={refreshLibrary} onMessage={showMessage} />}
       {accountsOpen && <AccountPanel bridge={bridge} bootstrap={bootstrap} modal onClose={() => setAccountsOpen(false)} onSelect={openSession} onBootstrap={setBootstrap} onMessage={showMessage} />}
       {syncConflict && <div className="modal-layer"><button className="modal-scrim" aria-label="Cancel retrieve" onClick={() => setSyncConflict(false)} /><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="sync-conflict-title"><AlertTriangle /><h2 id="sync-conflict-title">Unsynced changes</h2><p>Send the current queue before retrieving, or discard it and replace the local list.</p><div><button className="primary-button" onClick={() => resolveSyncConflict('send')}>Send, then retrieve</button><button className="danger-button" onClick={() => resolveSyncConflict('discard')}>Discard and retrieve</button><button className="text-button" onClick={() => setSyncConflict(false)}>Cancel</button></div></section></div>}
-      {trackerUpdate && <div className="modal-layer"><button className="modal-scrim" aria-label="Decline tracker update" onClick={() => setTrackerUpdate(null)} /><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="tracker-update-title"><RefreshCw /><h2 id="tracker-update-title">Update progress?</h2><p>Set {trackerUpdate.show.title} to episode {trackerUpdate.episode}?</p><div><button className="primary-button" onClick={applyTrackerUpdate}>Update progress</button><button className="text-button" onClick={() => setTrackerUpdate(null)}>Not now</button></div></section></div>}
+      {trackerUpdates.length > 0 && <div className="modal-layer"><button className="modal-scrim" aria-label="Decline tracker update" disabled={busy} onClick={() => setTrackerUpdates([])} /><section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="tracker-update-title"><RefreshCw /><h2 id="tracker-update-title">Update progress?</h2><section aria-live="polite">{trackerUpdates.map(({ show, firstEpisode, episode }) => <p key={show.id}>{firstEpisode === episode ? `Set ${show.title} to episode ${episode}?` : `Mark ${show.title} episodes ${firstEpisode}–${episode} as watched?`}</p>)}</section><div><button className="primary-button" disabled={busy} onClick={applyTrackerUpdate}>Update progress</button><button className="text-button" disabled={busy} onClick={() => setTrackerUpdates([])}>Not now</button></div></section></div>}
     </div>
   );
 }
