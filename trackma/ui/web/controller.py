@@ -101,6 +101,7 @@ class BackendController:
             "sync.upload": self._sync_upload,
             "show.details": self._show_details,
             "show.update": self._update_show,
+            "tracker.update": self._update_tracker_episode,
             "show.delete": self._delete_show,
             "show.setAltTitle": self._set_alt_title,
             "show.play": self._play_show,
@@ -373,6 +374,25 @@ class BackendController:
             except (TypeError, ValueError) as exc:
                 raise CommandError("INVALID_INPUT", "Dates must use YYYY-MM-DD format") from exc
             engine.set_dates(show_id, start_date, finish_date)
+        return engine.get_show_info(show_id)
+
+    def _update_tracker_episode(self, payload: dict[str, Any]) -> dict[str, Any]:
+        engine = self._require_engine()
+        show_id = payload["showId"]
+        episode = int(payload["episode"])
+        show = engine.get_show_info(show_id)
+        if episode < 1 or (show['total'] and episode > show['total']):
+            raise CommandError("INVALID_INPUT", "Episode out of limits")
+
+        # Finish any failed send before another progress update can replace it.
+        engine.list_upload(show_id)
+        if any(item['id'] == show_id for item in engine.get_queue()):
+            raise CommandError("SYNC_FAILED", "Episode update could not be sent; try again")
+        if episode > show['my_progress']:
+            engine.set_episode(show_id, episode)
+            engine.list_upload(show_id)
+            if any(item['id'] == show_id for item in engine.get_queue()):
+                raise CommandError("SYNC_FAILED", "Episode update could not be sent; try again")
         return engine.get_show_info(show_id)
 
     def _delete_show(self, payload: dict[str, Any]) -> dict[str, Any]:

@@ -231,6 +231,12 @@ export class MockBridge implements AppBridge {
         };
         break;
       }
+      case 'tracker.update': {
+        const show = this.show(payload.showId);
+        show.my_progress = Math.max(show.my_progress, Number(payload.episode));
+        result = show;
+        break;
+      }
       case 'show.update': {
         const show = this.show(payload.showId);
         const patch = payload.patch as Record<string, unknown>;

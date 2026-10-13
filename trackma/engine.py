@@ -1188,9 +1188,9 @@ class Engine:
         self.data_handler.download_data()
         self._update_tracker()
 
-    def list_upload(self):
-        """Asks the data handler to upload the unsynced changes in the queue."""
-        self.data_handler.process_queue()
+    def list_upload(self, show_id=None):
+        """Uploads queued changes, optionally for just one show."""
+        self.data_handler.process_queue(show_id)
         # for show in result:
         #    self._emit_signal('episode_changed', show)
 

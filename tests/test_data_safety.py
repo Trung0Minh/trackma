@@ -5,6 +5,9 @@ import pytest
 
 from trackma import utils
 from trackma.data import Data
+from trackma.engine import Engine
+from trackma.ui.web.contract import CommandError
+from trackma.ui.web.controller import BackendController
 
 
 class MessageSink:
@@ -68,6 +71,81 @@ def test_process_queue_removes_only_successful_items(tmp_path):
     assert handler.showlist[3]['queued'] is True
     assert [item['id'] for item in utils.load_data(handler.queue_file)] == [2, 3]
     assert handler.api.logged_out is True
+
+
+def test_uploading_show_without_queued_changes_leaves_queue_untouched(tmp_path):
+    handler = make_data(tmp_path)
+    original = list(handler.queue)
+    handler.process_queue(show_id=99)
+    assert handler.queue == original
+    assert handler.meta['lastsend'] == 0
+    assert handler.api.logged_out is False
+
+
+@pytest.fixture
+def tracker_confirmation(tmp_path):
+    handler = make_data(tmp_path)
+    handler.config = {'autosend': 'off'}
+    handler.showlist[1].update(my_id=1, my_progress=2, total=12, my_status=1)
+    handler.queue = [{'id': 2, 'title': 'Two', 'action': 'update', 'my_progress': 7}]
+    sent = []
+    fail = [False]
+
+    def update_show(item):
+        if fail[0]:
+            raise utils.APIError('temporary failure')
+        sent.append(dict(item))
+        return 123
+
+    handler.api.update_show = update_show
+    engine = object.__new__(Engine)
+    engine.loaded = True
+    engine.data_handler = handler
+    engine.msg = handler.msg
+    engine.config = {'auto_status_change': False, 'auto_date_change': False}
+    engine.mediainfo = {'can_update': True}
+    engine._update_tracker = lambda: None
+    engine._emit_signal = lambda *_args: None
+    controller = BackendController(account_manager=object())
+    controller.engine = engine
+    return controller, handler, sent, fail
+
+
+def test_tracker_confirmation_sends_each_episode_without_syncing_other_shows(tracker_confirmation):
+    controller, handler, sent, _ = tracker_confirmation
+    for episode in (3, 4):
+        controller.handle('tracker.update', {'showId': 1, 'episode': episode})
+
+    assert [item['my_progress'] for item in sent] == [3, 4]
+    assert handler.showlist[1]['my_progress'] == 4
+    assert [item['id'] for item in handler.queue] == [2]
+    assert utils.load_data(handler.queue_file) == handler.queue
+
+
+def test_tracker_confirmation_retries_failed_episode_before_advancing(tracker_confirmation):
+    controller, handler, sent, fail = tracker_confirmation
+    fail[0] = True
+    with pytest.raises(CommandError, match='could not be sent'):
+        controller.handle('tracker.update', {'showId': 1, 'episode': 3})
+    with pytest.raises(CommandError, match='could not be sent'):
+        controller.handle('tracker.update', {'showId': 1, 'episode': 4})
+    assert handler.showlist[1]['my_progress'] == 3
+    assert handler.queue[-1]['my_progress'] == 3
+
+    fail[0] = False
+    controller.handle('tracker.update', {'showId': 1, 'episode': 3})
+    controller.handle('tracker.update', {'showId': 1, 'episode': 4})
+    controller.handle('tracker.update', {'showId': 1, 'episode': 3})
+    assert [item['my_progress'] for item in sent] == [3, 4]
+
+
+@pytest.mark.parametrize('episode', [0, -1, 13, 'invalid'])
+def test_tracker_confirmation_rejects_invalid_episodes(tracker_confirmation, episode):
+    controller, handler, sent, _ = tracker_confirmation
+    with pytest.raises(CommandError):
+        controller.handle('tracker.update', {'showId': 1, 'episode': episode})
+    assert sent == []
+    assert handler.showlist[1]['my_progress'] == 2
 
 
 def test_queue_clear_resets_flags_and_persists_cache(tmp_path):

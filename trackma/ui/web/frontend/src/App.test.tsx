@@ -58,7 +58,7 @@ describe('App', () => {
     expect(countdown).toHaveTextContent('Update prompt in 37s');
   });
 
-  it('stacks watched episodes per show and applies the latest progress together', async () => {
+  it('stacks watched episodes per show and sends every episode in order', async () => {
     const user = userEvent.setup();
     const bridge = new MockBridge();
     const call = vi.spyOn(bridge, 'call');
@@ -77,9 +77,10 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Update progress' }));
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    expect(call.mock.calls.filter(([method]) => method === 'show.update')).toEqual([
-      ['show.update', { showId: 140960, patch: { progress: 24 } }],
-      ['show.update', { showId: 127230, patch: { progress: 9 } }],
+    expect(call.mock.calls.filter(([method]) => method === 'tracker.update')).toEqual([
+      ['tracker.update', { showId: 140960, episode: 23 }],
+      ['tracker.update', { showId: 140960, episode: 24 }],
+      ['tracker.update', { showId: 127230, episode: 9 }],
     ]);
   });
 
@@ -108,6 +109,33 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Update progress' }));
     expect(await screen.findByText('Save failed')).toBeInTheDocument();
     expect(screen.getByText('Set Spy x Family to episode 23?')).toBeInTheDocument();
+  });
+
+  it('retries only the remaining episodes after a partially successful batch', async () => {
+    const user = userEvent.setup();
+    const bridge = new MockBridge();
+    render(<App bridge={bridge} />);
+    await screen.findByRole('heading', { name: 'My library' });
+    const originalCall = bridge.call.bind(bridge);
+    let fail = true;
+    const call = vi.spyOn(bridge, 'call').mockImplementation((command, payload) => {
+      if (command === 'tracker.update' && payload?.episode === 24 && fail) {
+        return Promise.reject(new Error('Send failed'));
+      }
+      return originalCall(command, payload);
+    });
+    act(() => {
+      for (const episode of [23, 24, 25]) {
+        bridge.emit('prompt_for_update', [{ id: 140960, title: 'Spy x Family' }, episode]);
+      }
+    });
+    await user.click(screen.getByRole('button', { name: 'Update progress' }));
+    expect(await screen.findByText('Send failed')).toBeInTheDocument();
+    expect(screen.getByText('Mark Spy x Family episodes 24–25 as watched?')).toBeInTheDocument();
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Update progress' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(call.mock.calls.filter(([command]) => command === 'tracker.update').map(([, payload]) => payload?.episode)).toEqual([23, 24, 24, 25]);
   });
 
   it('shows warning messages as danger toasts', async () => {

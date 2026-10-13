@@ -230,14 +230,13 @@ export default function App({ bridge }: AppProps) {
     const requests = trackerUpdates;
     await run(async () => {
       for (const request of requests) {
-        const show = session?.library.shows.find((item) => String(item.id) === String(request.show.id));
-        if (!show || show.my_progress < request.episode) {
-          await bridge.call('show.update', { showId: request.show.id, patch: { progress: request.episode } });
+        for (let episode = request.firstEpisode; episode <= request.episode; episode += 1) {
+          await bridge.call('tracker.update', { showId: request.show.id, episode });
+          setTrackerUpdates((current) => current.flatMap((item) => {
+            if (String(item.show.id) !== String(request.show.id)) return [item];
+            return item.episode > episode ? [{ ...item, firstEpisode: episode + 1 }] : [];
+          }));
         }
-        setTrackerUpdates((current) => current.flatMap((item) => {
-          if (String(item.show.id) !== String(request.show.id)) return [item];
-          return item.episode > request.episode ? [{ ...item, firstEpisode: request.episode + 1 }] : [];
-        }));
       }
       await refreshLibrary();
     }, 'Watched progress updated');

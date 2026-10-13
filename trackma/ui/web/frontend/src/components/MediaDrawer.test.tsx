@@ -87,10 +87,11 @@ describe('MediaDrawer', () => {
     });
   });
 
-  it('falls back to the Keyframe staff-list search when exact lookup fails', async () => {
+  it.each(['Frieren', 'Botan Kamiina Fully Blossoms When Drunk'])('searches staff lists for %s when exact lookup fails', async (title) => {
     const user = userEvent.setup();
+    const fallbackShow = { ...show, title };
     const call = vi.fn(async (command: string, _payload?: Record<string, unknown>) => {
-      if (command === 'show.details') return { show, details: {} };
+      if (command === 'show.details') return { show: fallbackShow, details: {} };
       if (command === 'keyframe.staffList') throw new Error('Keyframe Staff List lookup failed');
       return {};
     });
@@ -104,18 +105,18 @@ describe('MediaDrawer', () => {
       <MediaDrawer
         bridge={bridge}
         session={session}
-        show={show}
+        show={fallbackShow}
         onClose={vi.fn()}
         onChanged={vi.fn(async () => undefined)}
         onMessage={onMessage}
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Open Frieren on Keyframe Staff List' }));
+    await user.click(screen.getByRole('button', { name: `Open ${title} on Keyframe Staff List` }));
 
     await waitFor(() => {
       expect(call).toHaveBeenCalledWith('native.openExternal', {
-        url: 'https://keyframe-staff-list.com/search?q=Frieren',
+        url: `https://keyframe-staff-list.com/staff-lists?q=${encodeURIComponent(title)}`,
       });
     });
     expect(onMessage).not.toHaveBeenCalled();

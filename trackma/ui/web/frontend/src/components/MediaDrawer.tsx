@@ -112,7 +112,7 @@ export function MediaDrawer({ bridge, session, show, onClose, onChanged, onMessa
 
   async function openKeyframeStaffList(anilistId: number) {
     setKeyframeBusy(true);
-    let url = `https://keyframe-staff-list.com/search?q=${encodeURIComponent(show.title)}`;
+    let url = `https://keyframe-staff-list.com/staff-lists?q=${encodeURIComponent(show.title)}`;
     try {
       const result = await bridge.call<{ url: string }>('keyframe.staffList', { anilistId });
       url = result.url;

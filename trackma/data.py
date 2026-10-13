@@ -404,15 +404,18 @@ class Data:
             self._emit_signal('queue_changed', self.queue)
             self.msg.info("Cleared queue.")
 
-    def process_queue(self):
+    def process_queue(self, show_id=None):
         """
         Send updates in queue to the API
 
         It starts sending all the queued updates to the API for it to update
         the remote list. Any successful updates get removed from the queue,
         and failed updates stay there to be processed the next time.
+        If show_id is supplied, leave other shows queued.
 
         """
+        if show_id is not None and not any(item['id'] == show_id for item in self.queue):
+            return
         if self.queue:
             self.msg.info('Processing queue...')
 
@@ -431,6 +434,9 @@ class Data:
             original_queue = list(self.queue)
             failed_items = []
             for index, item in enumerate(original_queue):
+                if show_id is not None and item['id'] != show_id:
+                    failed_items.append(item)
+                    continue
 
                 showid = item['id']
 
